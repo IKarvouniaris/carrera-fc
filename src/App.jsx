@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 /* ============================================================
    SIMULADOR DE CARRERA — estilo minimalista tipo Copero
@@ -426,13 +426,32 @@ export default function App() {
   const [pendingHint, setPendingHint] = useState(null); // indirecta elegida (opcional) antes de la acción
   const [postDiario, setPostDiario] = useState(null); // pantalla que sigue después de la tapa del diario
   const [diarioKind, setDiarioKind] = useState("normal");
+  const [celebration, setCelebration] = useState(null); // { title, subtitle, emoji } o null
 
-  // Toda temporada termina en la tapa del diario; después se sigue a la pantalla que corresponda
-  function goDiario(nextScreen, kind) {
+  // Toda temporada termina en la tapa del diario; después se sigue a la pantalla que corresponda.
+  // Si hubo un logro grande, primero mostramos una pantalla de festejo.
+  function goDiario(nextScreen, kind, party) {
     setPostDiario(nextScreen);
     setDiarioKind(kind);
-    setScreen("diario");
+    if (party) {
+      buzz([40, 60, 40, 60, 120]); // patrón de vibración festivo
+      setCelebration(party);
+      setScreen("festejo");
+    } else {
+      setScreen("diario");
+    }
   }
+
+  // Vibración en dispositivos que la soporten (móviles). Silencioso si no.
+  function buzz(pattern) {
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
+  }
+
+  // Vibración corta y seca cuando el resultado de la temporada trae una lesión
+  useEffect(() => {
+    if (lastSeason?.injured) buzz(lastSeason.severeInjury ? [90, 50, 90] : [70]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastSeason]);
 
   // ---------- FLUJO ----------
 
@@ -584,7 +603,19 @@ export default function App() {
     setReleased(false);
     setOffers(generateOffers(next, season.rating, false));
     setNegMsg(null);
-    goDiario("mercado", "normal");
+
+    // ¿Hubo un logro grande para festejar? Prioridad: Balón de Oro > Mundial > Copa América > título de liga
+    let party = null;
+    if (ballon) {
+      party = { title: "BALÓN DE ORO", subtitle: `${next.apellido} es el mejor jugador del mundo`, emoji: "✨" };
+    } else if (natl?.torneo?.won && natl.torneo.name === "Mundial") {
+      party = { title: "¡CAMPEÓN DEL MUNDO!", subtitle: `${next.apellido} y la Selección tocan la gloria`, emoji: "🏆" };
+    } else if (natl?.torneo?.won) {
+      party = { title: "¡CAMPEÓN DE AMÉRICA!", subtitle: `${next.apellido} levanta la Copa con la Selección`, emoji: "🏆" };
+    } else if (season.champion) {
+      party = { title: "¡CAMPEONES!", subtitle: `${club(s.clubId).name} da la vuelta con ${next.apellido}`, emoji: "🏆" };
+    }
+    goDiario("mercado", "normal", party);
   }
 
   // Duelo generacional: pelear el puesto o irte al club que te llama
@@ -834,56 +865,67 @@ export default function App() {
     );
   };
 
-  const SeasonSummary = () => lastSeason && (
-    <div className="bg-neutral-950 rounded-2xl p-4 mb-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <p className="text-xs text-neutral-500 uppercase tracking-wide">
-            Temporada {lastSeason.age} años{lastSeason.injured && <span className="text-red-400 normal-case">{lastSeason.severeInjury ? " · lesión grave 🚑" : " · te lesionaste"}</span>}
-          </p>
-          <p className="text-sm mt-1">
-            <span className={`mr-1.5 text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${lastSeason.role === "Titular" ? "bg-emerald-900 text-emerald-300" : lastSeason.role === "Rotación" ? "bg-amber-900 text-amber-300" : "bg-neutral-800 text-neutral-400"}`}>{lastSeason.role}</span>
-            {lastSeason.pj} PJ · {lastSeason.gls} goles · {lastSeason.ast} asist.</p>
+  const SeasonSummary = () => {
+    if (!lastSeason) return null;
+    // avisos como lista para poder animarlos escalonados
+    const notices = [];
+    if (lastSeason.champion) notices.push({ c: "text-amber-300", t: `🏆 ¡${club(lastSeason.clubId).name} campeón de la ${club(lastSeason.clubId).league}! Cobraste un premio.` });
+    if (lastSeason.natl) notices.push({ c: "text-sky-300", t: `🇦🇷 Convocado a la selección: ${lastSeason.natl.caps} PJ${lastSeason.natl.goals > 0 ? `, ${lastSeason.natl.goals} goles` : ""}.` });
+    if (lastSeason.natl?.torneo) notices.push({
+      c: lastSeason.natl.torneo.won ? "text-amber-300" : "text-neutral-400",
+      t: lastSeason.natl.torneo.won ? `🏆 ¡Ganaste ${lastSeason.natl.torneo.name === "Mundial" ? "el" : "la"} ${lastSeason.natl.torneo.name}!` : `Jugaste ${lastSeason.natl.torneo.name === "Mundial" ? "el" : "la"} ${lastSeason.natl.torneo.name}, pero no alcanzó.`,
+    });
+    if (lastSeason.ballon) notices.push({ c: "text-yellow-300 font-semibold", t: "✨ ¡Ganaste el Balón de Oro! Sos el mejor jugador del mundo." });
+    (lastSeason.milestones || []).forEach((m) => notices.push({ c: "text-violet-300", t: m }));
+    if (lastSeason.duelResult === "won") notices.push({ c: "text-violet-300", t: "🥊 Le ganaste el duelo al pibe: el DT te ratificó como referente." });
+    if (lastSeason.duelResult === "lost") notices.push({ c: "text-red-400", t: "🥊 El pibe te pasó por arriba y te comió el puesto. Pasaste el año en el banco." });
+    if (lastSeason.warning) notices.push({ c: "text-orange-400", t: `⚠️ En ${club(lastSeason.clubId).name} no están conformes: otra temporada así y te sueltan.` });
+    if (lastSeason.wasAngry) notices.push({ c: "text-red-400", t: "😡 Tu hinchada no te perdonó la indirecta al clásico rival: jugaste presionado todo el año." });
+
+    return (
+      <>
+        {/* Banner de lesión: rojo, animado, arriba de todo */}
+        {lastSeason.injured && (
+          <div className={`rounded-2xl mb-4 p-4 anim-slide-down anim-pulse-red border ${lastSeason.severeInjury ? "bg-red-950 border-red-600" : "bg-red-950/70 border-red-800"}`}>
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">🚑</span>
+              <div>
+                <p className="font-bold text-red-200">{lastSeason.severeInjury ? "Lesión grave" : "Te lesionaste"}</p>
+                <p className="text-xs text-red-300/80">
+                  {lastSeason.severeInjury
+                    ? "Una lesión seria te condicionó el año: perdiste partidos y ritmo. Cuidá tu físico con los fisios."
+                    : "Estuviste afuera parte de la temporada. Un cuerpo de fisios reduce mucho el riesgo."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-neutral-950 rounded-2xl p-4 mb-4 anim-fade-up">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-xs text-neutral-500 uppercase tracking-wide">
+                Temporada {lastSeason.age} años
+              </p>
+              <p className="text-sm mt-1">
+                <span className={`mr-1.5 text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${lastSeason.role === "Titular" ? "bg-emerald-900 text-emerald-300" : lastSeason.role === "Rotación" ? "bg-amber-900 text-amber-300" : "bg-neutral-800 text-neutral-400"}`}>{lastSeason.role}</span>
+                {lastSeason.pj} PJ · {lastSeason.gls} goles · {lastSeason.ast} asist.</p>
+            </div>
+            <div className={`text-2xl font-bold ${lastSeason.rating >= 7 ? "text-emerald-400" : lastSeason.rating < 5.8 ? "text-red-400" : "text-neutral-300"}`}>
+              {lastSeason.rating}
+            </div>
+          </div>
+          {notices.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-neutral-800 space-y-1.5">
+              {notices.map((n, i) => (
+                <p key={i} className={`text-sm ${n.c} anim-fade-up`} style={{ animationDelay: `${0.1 + i * 0.12}s` }}>{n.t}</p>
+              ))}
+            </div>
+          )}
         </div>
-        <div className={`text-2xl font-bold ${lastSeason.rating >= 7 ? "text-emerald-400" : lastSeason.rating < 5.8 ? "text-red-400" : "text-neutral-300"}`}>
-          {lastSeason.rating}
-        </div>
-      </div>
-      {(lastSeason.champion || lastSeason.natl || lastSeason.wasAngry || lastSeason.ballon || lastSeason.warning || lastSeason.duelResult || (lastSeason.milestones || []).length > 0) && (
-        <div className="mt-3 pt-3 border-t border-neutral-800 space-y-1.5">
-          {lastSeason.champion && (
-            <p className="text-sm text-amber-300">🏆 ¡{club(lastSeason.clubId).name} campeón de la {club(lastSeason.clubId).league}! Cobraste un premio.</p>
-          )}
-          {lastSeason.natl && (
-            <p className="text-sm text-sky-300">🇦🇷 Convocado a la selección: {lastSeason.natl.caps} PJ{lastSeason.natl.goals > 0 ? `, ${lastSeason.natl.goals} goles` : ""}.</p>
-          )}
-          {lastSeason.natl?.torneo && (
-            <p className={`text-sm ${lastSeason.natl.torneo.won ? "text-amber-300" : "text-neutral-400"}`}>
-              {lastSeason.natl.torneo.won ? `🏆 ¡Ganaste ${lastSeason.natl.torneo.name === "Mundial" ? "el" : "la"} ${lastSeason.natl.torneo.name}!` : `Jugaste ${lastSeason.natl.torneo.name === "Mundial" ? "el" : "la"} ${lastSeason.natl.torneo.name}, pero no alcanzó.`}
-            </p>
-          )}
-          {lastSeason.ballon && (
-            <p className="text-sm text-yellow-300 font-semibold">✨ ¡Ganaste el Balón de Oro! Sos el mejor jugador del mundo.</p>
-          )}
-          {(lastSeason.milestones || []).map((m, i) => (
-            <p key={i} className="text-sm text-violet-300">{m}</p>
-          ))}
-          {lastSeason.duelResult === "won" && (
-            <p className="text-sm text-violet-300">🥊 Le ganaste el duelo al pibe: el DT te ratificó como referente.</p>
-          )}
-          {lastSeason.duelResult === "lost" && (
-            <p className="text-sm text-red-400">🥊 El pibe te pasó por arriba y te comió el puesto. Pasaste el año en el banco.</p>
-          )}
-          {lastSeason.warning && (
-            <p className="text-sm text-orange-400">⚠️ En {club(lastSeason.clubId).name} no están conformes: otra temporada así y te sueltan.</p>
-          )}
-          {lastSeason.wasAngry && (
-            <p className="text-sm text-red-400">😡 Tu hinchada no te perdonó la indirecta al clásico rival: jugaste presionado todo el año.</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
+      </>
+    );
+  };
 
   const HistoryTable = ({ compact }) => (
     <div className="bg-neutral-950 rounded-2xl p-4">
@@ -998,6 +1040,29 @@ export default function App() {
           </div>
           </div>
           <Footer />
+      </div>
+    );
+  }
+
+  // --- FESTEJO: pantalla de celebración con confetti antes del diario ---
+  if (screen === "festejo" && celebration) {
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Confetti />
+          <div className="relative flex flex-col items-center justify-center text-center py-16">
+            <div className="text-7xl mb-4 anim-trophy">{celebration.emoji}</div>
+            <p className="text-[11px] uppercase tracking-[0.3em] text-amber-400 mb-2 anim-fade-up" style={{ animationDelay: "0.15s" }}>Temporada {lastSeason.age} años</p>
+            <h1 className="text-4xl font-black text-amber-200 leading-tight anim-pop-in" style={{ animationDelay: "0.2s" }}>{celebration.title}</h1>
+            <p className="text-neutral-300 mt-3 anim-fade-up" style={{ animationDelay: "0.4s" }}>{celebration.subtitle}</p>
+            <button
+              onClick={() => { setCelebration(null); setScreen("diario"); }}
+              className={`${S.btnPrimary} mt-10 anim-fade-up`} style={{ animationDelay: "0.6s", maxWidth: 260 }}>
+              Seguir
+            </button>
+          </div>
+          <Footer />
+        </div>
       </div>
     );
   }
@@ -1386,6 +1451,39 @@ function ClubPicker({ targets, rival, onPick }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function Confetti() {
+  // 60 papelitos con color, posición, retraso y duración aleatorios
+  const pieces = Array.from({ length: 60 }, (_, i) => {
+    const colors = ["#f59e0b", "#fbbf24", "#10b981", "#3b82f6", "#ef4444", "#ffffff", "#a855f7"];
+    return {
+      left: Math.random() * 100,
+      color: colors[i % colors.length],
+      delay: Math.random() * 0.6,
+      duration: 2 + Math.random() * 1.5,
+      size: 6 + Math.random() * 6,
+    };
+  });
+  return (
+    <div className="pointer-events-none fixed inset-0 overflow-hidden z-50" aria-hidden="true">
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: `${p.left}%`,
+            width: p.size,
+            height: p.size * 1.4,
+            background: p.color,
+            borderRadius: 2,
+            animation: `confettiFall ${p.duration}s linear ${p.delay}s infinite`,
+          }}
+        />
+      ))}
     </div>
   );
 }
