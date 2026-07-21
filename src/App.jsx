@@ -1,0 +1,1421 @@
+import { useState } from "react";
+
+/* ============================================================
+   SIMULADOR DE CARRERA — estilo minimalista tipo Copero
+   ------------------------------------------------------------
+   Loop por temporada (2 decisiones):
+   1) MERCADO: ¿seguís en tu club o fichás por uno que te oferta?
+      Si rendiste mal, el club te suelta y estás OBLIGADO a elegir
+      otra oferta (aunque sea de un club más chico).
+   2) PRETEMPORADA: ¿en qué invertís tu plata? (preparador, fisios,
+      agente, indirecta gratis, o guardar)
+   Después la temporada se simula sola y se suma a la tabla.
+   ============================================================ */
+
+// ---------- DATOS ----------
+
+const POSITIONS = ["POR","LD","DFC","LI","MCD","MC","MCO","MD","MI","ED","EI","DC"];
+
+// prestige: qué tanto te desarrolla el club | req: OVR mínimo aprox.
+const CLUBS = [
+  { id: "river", name: "River Plate", league: "Liga Profesional (ARG)", tier: 3, req: 76, prestige: 86 },
+  { id: "boca", name: "Boca Juniors", league: "Liga Profesional (ARG)", tier: 3, req: 75, prestige: 85 },
+  { id: "racing", name: "Racing", league: "Liga Profesional (ARG)", tier: 3, req: 70, prestige: 72 },
+  { id: "independiente", name: "Independiente", league: "Liga Profesional (ARG)", tier: 3, req: 66, prestige: 64 },
+  { id: "sanlo", name: "San Lorenzo", league: "Liga Profesional (ARG)", tier: 3, req: 66, prestige: 63 },
+  { id: "estudiantes", name: "Estudiantes", league: "Liga Profesional (ARG)", tier: 3, req: 68, prestige: 66 },
+  { id: "velez", name: "Vélez", league: "Liga Profesional (ARG)", tier: 3, req: 67, prestige: 65 },
+  { id: "huracan", name: "Huracán", league: "Liga Profesional (ARG)", tier: 2, req: 62, prestige: 54 },
+  { id: "lanus", name: "Lanús", league: "Liga Profesional (ARG)", tier: 3, req: 65, prestige: 60 },
+  { id: "newells", name: "Newell\'s", league: "Liga Profesional (ARG)", tier: 2, req: 63, prestige: 56 },
+  { id: "central", name: "Rosario Central", league: "Liga Profesional (ARG)", tier: 2, req: 63, prestige: 55 },
+  { id: "defensa", name: "Defensa y Justicia", league: "Liga Profesional (ARG)", tier: 2, req: 62, prestige: 53 },
+  { id: "talleres", name: "Talleres", league: "Liga Profesional (ARG)", tier: 3, req: 66, prestige: 62 },
+  { id: "godoy", name: "Godoy Cruz", league: "Liga Profesional (ARG)", tier: 2, req: 61, prestige: 50 },
+  { id: "argjrs", name: "Argentinos Juniors", league: "Liga Profesional (ARG)", tier: 2, req: 62, prestige: 52 },
+  { id: "tigre", name: "Tigre", league: "Liga Profesional (ARG)", tier: 2, req: 58, prestige: 45 },
+  { id: "platense", name: "Platense", league: "Liga Profesional (ARG)", tier: 2, req: 57, prestige: 43 },
+  { id: "banfield", name: "Banfield", league: "Liga Profesional (ARG)", tier: 2, req: 59, prestige: 47 },
+  { id: "gimnasia", name: "Gimnasia LP", league: "Liga Profesional (ARG)", tier: 2, req: 58, prestige: 44 },
+  { id: "instituto", name: "Instituto", league: "Liga Profesional (ARG)", tier: 2, req: 57, prestige: 42 },
+  { id: "belgrano", name: "Belgrano", league: "Liga Profesional (ARG)", tier: 2, req: 59, prestige: 46 },
+  { id: "colon", name: "Colón", league: "Liga Profesional (ARG)", tier: 2, req: 58, prestige: 44 },
+  { id: "union", name: "Unión", league: "Liga Profesional (ARG)", tier: 2, req: 58, prestige: 45 },
+  { id: "barracas", name: "Barracas Central", league: "Liga Profesional (ARG)", tier: 2, req: 55, prestige: 40 },
+  { id: "sarmiento", name: "Sarmiento", league: "Liga Profesional (ARG)", tier: 2, req: 54, prestige: 38 },
+  { id: "aldosivi", name: "Aldosivi", league: "Liga Profesional (ARG)", tier: 2, req: 54, prestige: 38 },
+  { id: "riestra", name: "Dep. Riestra", league: "Liga Profesional (ARG)", tier: 2, req: 53, prestige: 36 },
+  { id: "chaca", name: "Chacarita", league: "Primera Nacional (ARG)", tier: 1, req: 48, prestige: 30 },
+  { id: "quilmes", name: "Quilmes", league: "Primera Nacional (ARG)", tier: 1, req: 47, prestige: 28 },
+  { id: "moron", name: "Dep. Morón", league: "Primera Nacional (ARG)", tier: 1, req: 46, prestige: 26 },
+  { id: "sanmartin", name: "San Martín T.", league: "Primera Nacional (ARG)", tier: 1, req: 46, prestige: 25 },
+  { id: "nueva", name: "Nueva Chicago", league: "Primera Nacional (ARG)", tier: 1, req: 46, prestige: 26 },
+  { id: "almirante", name: "Alte. Brown", league: "Primera Nacional (ARG)", tier: 1, req: 46, prestige: 26 },
+  { id: "gimnasiaj", name: "Gimnasia Jujuy", league: "Primera Nacional (ARG)", tier: 1, req: 45, prestige: 22 },
+  { id: "temperley", name: "Temperley", league: "Primera Nacional (ARG)", tier: 1, req: 44, prestige: 20 },
+  { id: "madrid", name: "Real Madrid", league: "La Liga (ESP)", tier: 5, req: 86, prestige: 100 },
+  { id: "barcelona", name: "Barcelona", league: "La Liga (ESP)", tier: 5, req: 85, prestige: 99 },
+  { id: "atletico", name: "Atlético Madrid", league: "La Liga (ESP)", tier: 4, req: 82, prestige: 90 },
+  { id: "sevilla", name: "Sevilla", league: "La Liga (ESP)", tier: 4, req: 78, prestige: 84 },
+  { id: "realsociedad", name: "Real Sociedad", league: "La Liga (ESP)", tier: 4, req: 78, prestige: 83 },
+  { id: "betis", name: "Real Betis", league: "La Liga (ESP)", tier: 4, req: 77, prestige: 80 },
+  { id: "villarreal", name: "Villarreal", league: "La Liga (ESP)", tier: 4, req: 78, prestige: 82 },
+  { id: "athletic", name: "Athletic Club", league: "La Liga (ESP)", tier: 4, req: 77, prestige: 80 },
+  { id: "valencia", name: "Valencia", league: "La Liga (ESP)", tier: 4, req: 76, prestige: 78 },
+  { id: "girona", name: "Girona", league: "La Liga (ESP)", tier: 4, req: 76, prestige: 77 },
+  { id: "osasuna", name: "Osasuna", league: "La Liga (ESP)", tier: 4, req: 72, prestige: 68 },
+  { id: "celta", name: "Celta", league: "La Liga (ESP)", tier: 4, req: 72, prestige: 67 },
+  { id: "getafe", name: "Getafe", league: "La Liga (ESP)", tier: 4, req: 71, prestige: 65 },
+  { id: "mallorca", name: "Mallorca", league: "La Liga (ESP)", tier: 4, req: 71, prestige: 64 },
+  { id: "rayo", name: "Rayo Vallecano", league: "La Liga (ESP)", tier: 4, req: 70, prestige: 62 },
+  { id: "alaves", name: "Alavés", league: "La Liga (ESP)", tier: 4, req: 69, prestige: 60 },
+  { id: "laspalmas", name: "Las Palmas", league: "La Liga (ESP)", tier: 4, req: 69, prestige: 60 },
+  { id: "leganes", name: "Leganés", league: "La Liga (ESP)", tier: 4, req: 68, prestige: 58 },
+  { id: "valladolid", name: "Valladolid", league: "La Liga (ESP)", tier: 4, req: 67, prestige: 56 },
+  { id: "espanyol", name: "Espanyol", league: "La Liga (ESP)", tier: 4, req: 68, prestige: 58 },
+  { id: "bayern", name: "Bayern Múnich", league: "Bundesliga (GER)", tier: 5, req: 85, prestige: 99 },
+  { id: "dortmund", name: "Dortmund", league: "Bundesliga (GER)", tier: 4, req: 81, prestige: 88 },
+  { id: "leverkusen", name: "Leverkusen", league: "Bundesliga (GER)", tier: 4, req: 82, prestige: 89 },
+  { id: "leipzig", name: "RB Leipzig", league: "Bundesliga (GER)", tier: 4, req: 80, prestige: 86 },
+  { id: "stuttgart", name: "Stuttgart", league: "Bundesliga (GER)", tier: 4, req: 77, prestige: 79 },
+  { id: "frankfurt", name: "E. Frankfurt", league: "Bundesliga (GER)", tier: 4, req: 77, prestige: 78 },
+  { id: "freiburg", name: "Friburgo", league: "Bundesliga (GER)", tier: 4, req: 74, prestige: 72 },
+  { id: "wolfsburg", name: "Wolfsburgo", league: "Bundesliga (GER)", tier: 4, req: 74, prestige: 71 },
+  { id: "gladbach", name: "M\'gladbach", league: "Bundesliga (GER)", tier: 4, req: 73, prestige: 70 },
+  { id: "mainz", name: "Mainz", league: "Bundesliga (GER)", tier: 4, req: 71, prestige: 64 },
+  { id: "hoffenheim", name: "Hoffenheim", league: "Bundesliga (GER)", tier: 4, req: 72, prestige: 66 },
+  { id: "bremen", name: "Werder Bremen", league: "Bundesliga (GER)", tier: 4, req: 72, prestige: 66 },
+  { id: "augsburg", name: "Augsburgo", league: "Bundesliga (GER)", tier: 4, req: 70, prestige: 62 },
+  { id: "union2", name: "Union Berlin", league: "Bundesliga (GER)", tier: 4, req: 71, prestige: 64 },
+  { id: "bochum", name: "Bochum", league: "Bundesliga (GER)", tier: 4, req: 68, prestige: 56 },
+  { id: "heidenheim", name: "Heidenheim", league: "Bundesliga (GER)", tier: 4, req: 67, prestige: 54 },
+  { id: "stpauli", name: "St. Pauli", league: "Bundesliga (GER)", tier: 4, req: 67, prestige: 54 },
+  { id: "holstein", name: "Holstein Kiel", league: "Bundesliga (GER)", tier: 4, req: 66, prestige: 52 },
+  { id: "inter", name: "Inter", league: "Serie A (ITA)", tier: 5, req: 84, prestige: 95 },
+  { id: "milan", name: "Milan", league: "Serie A (ITA)", tier: 4, req: 82, prestige: 92 },
+  { id: "juventus", name: "Juventus", league: "Serie A (ITA)", tier: 4, req: 82, prestige: 91 },
+  { id: "napoli", name: "Napoli", league: "Serie A (ITA)", tier: 4, req: 82, prestige: 90 },
+  { id: "roma", name: "Roma", league: "Serie A (ITA)", tier: 4, req: 79, prestige: 85 },
+  { id: "lazio", name: "Lazio", league: "Serie A (ITA)", tier: 4, req: 78, prestige: 82 },
+  { id: "atalanta", name: "Atalanta", league: "Serie A (ITA)", tier: 4, req: 80, prestige: 86 },
+  { id: "fiorentina", name: "Fiorentina", league: "Serie A (ITA)", tier: 4, req: 77, prestige: 79 },
+  { id: "bologna", name: "Bologna", league: "Serie A (ITA)", tier: 4, req: 76, prestige: 76 },
+  { id: "torino", name: "Torino", league: "Serie A (ITA)", tier: 4, req: 73, prestige: 70 },
+  { id: "udinese", name: "Udinese", league: "Serie A (ITA)", tier: 4, req: 72, prestige: 66 },
+  { id: "genoa", name: "Genoa", league: "Serie A (ITA)", tier: 4, req: 71, prestige: 64 },
+  { id: "monza", name: "Monza", league: "Serie A (ITA)", tier: 4, req: 70, prestige: 62 },
+  { id: "lecce", name: "Lecce", league: "Serie A (ITA)", tier: 4, req: 69, prestige: 58 },
+  { id: "cagliari", name: "Cagliari", league: "Serie A (ITA)", tier: 4, req: 69, prestige: 58 },
+  { id: "verona", name: "Verona", league: "Serie A (ITA)", tier: 4, req: 69, prestige: 57 },
+  { id: "parma", name: "Parma", league: "Serie A (ITA)", tier: 4, req: 69, prestige: 58 },
+  { id: "como", name: "Como", league: "Serie A (ITA)", tier: 4, req: 70, prestige: 60 },
+  { id: "empoli", name: "Empoli", league: "Serie A (ITA)", tier: 4, req: 68, prestige: 56 },
+  { id: "venezia", name: "Venezia", league: "Serie A (ITA)", tier: 4, req: 67, prestige: 54 },
+  { id: "mancity", name: "Man City", league: "Premier League (ENG)", tier: 5, req: 86, prestige: 100 },
+  { id: "arsenal", name: "Arsenal", league: "Premier League (ENG)", tier: 5, req: 84, prestige: 95 },
+  { id: "liverpool", name: "Liverpool", league: "Premier League (ENG)", tier: 5, req: 85, prestige: 97 },
+  { id: "chelsea", name: "Chelsea", league: "Premier League (ENG)", tier: 4, req: 81, prestige: 88 },
+  { id: "mancity_utd", name: "Man United", league: "Premier League (ENG)", tier: 4, req: 80, prestige: 88 },
+  { id: "tottenham", name: "Tottenham", league: "Premier League (ENG)", tier: 4, req: 80, prestige: 86 },
+  { id: "newcastle", name: "Newcastle", league: "Premier League (ENG)", tier: 4, req: 79, prestige: 84 },
+  { id: "villa", name: "Aston Villa", league: "Premier League (ENG)", tier: 4, req: 79, prestige: 83 },
+  { id: "westham", name: "West Ham", league: "Premier League (ENG)", tier: 4, req: 76, prestige: 76 },
+  { id: "brighton", name: "Brighton", league: "Premier League (ENG)", tier: 4, req: 76, prestige: 76 },
+  { id: "bournemouth", name: "Bournemouth", league: "Premier League (ENG)", tier: 4, req: 74, prestige: 70 },
+  { id: "palace", name: "Crystal Palace", league: "Premier League (ENG)", tier: 4, req: 74, prestige: 70 },
+  { id: "fulham", name: "Fulham", league: "Premier League (ENG)", tier: 4, req: 74, prestige: 69 },
+  { id: "wolves", name: "Wolves", league: "Premier League (ENG)", tier: 4, req: 73, prestige: 68 },
+  { id: "everton", name: "Everton", league: "Premier League (ENG)", tier: 4, req: 73, prestige: 67 },
+  { id: "brentford", name: "Brentford", league: "Premier League (ENG)", tier: 4, req: 74, prestige: 69 },
+  { id: "forest", name: "Nott\'m Forest", league: "Premier League (ENG)", tier: 4, req: 73, prestige: 67 },
+  { id: "leicester", name: "Leicester", league: "Premier League (ENG)", tier: 4, req: 72, prestige: 66 },
+  { id: "ipswich", name: "Ipswich", league: "Premier League (ENG)", tier: 4, req: 70, prestige: 60 },
+  { id: "southampton", name: "Southampton", league: "Premier League (ENG)", tier: 4, req: 70, prestige: 60 },
+  { id: "leeds", name: "Leeds", league: "Championship (ENG)", tier: 3, req: 70, prestige: 64 },
+  { id: "burnley", name: "Burnley", league: "Championship (ENG)", tier: 3, req: 69, prestige: 62 },
+  { id: "sheffield", name: "Sheffield Utd", league: "Championship (ENG)", tier: 3, req: 68, prestige: 60 },
+  { id: "sunderland", name: "Sunderland", league: "Championship (ENG)", tier: 3, req: 67, prestige: 58 },
+  { id: "westbrom", name: "West Brom", league: "Championship (ENG)", tier: 3, req: 67, prestige: 57 },
+  { id: "norwich", name: "Norwich", league: "Championship (ENG)", tier: 3, req: 66, prestige: 56 },
+  { id: "middlesbrough", name: "Middlesbrough", league: "Championship (ENG)", tier: 3, req: 66, prestige: 55 },
+  { id: "coventry", name: "Coventry", league: "Championship (ENG)", tier: 3, req: 65, prestige: 54 },
+  { id: "hull", name: "Hull City", league: "Championship (ENG)", tier: 3, req: 64, prestige: 50 },
+  { id: "watford", name: "Watford", league: "Championship (ENG)", tier: 3, req: 65, prestige: 53 },
+  { id: "bristol", name: "Bristol City", league: "Championship (ENG)", tier: 3, req: 64, prestige: 50 },
+  { id: "cardiff", name: "Cardiff", league: "Championship (ENG)", tier: 3, req: 63, prestige: 48 },
+  { id: "nacional", name: "Atl. Nacional", league: "Primera A (COL)", tier: 3, req: 68, prestige: 64 },
+  { id: "millonarios", name: "Millonarios", league: "Primera A (COL)", tier: 3, req: 66, prestige: 60 },
+  { id: "america_cali", name: "América de Cali", league: "Primera A (COL)", tier: 3, req: 66, prestige: 60 },
+  { id: "junior", name: "Junior", league: "Primera A (COL)", tier: 3, req: 66, prestige: 59 },
+  { id: "cali", name: "Dep. Cali", league: "Primera A (COL)", tier: 2, req: 63, prestige: 52 },
+  { id: "medellin", name: "Ind. Medellín", league: "Primera A (COL)", tier: 2, req: 63, prestige: 52 },
+  { id: "tolima", name: "Dep. Tolima", league: "Primera A (COL)", tier: 2, req: 63, prestige: 53 },
+  { id: "santafe", name: "Santa Fe", league: "Primera A (COL)", tier: 2, req: 63, prestige: 52 },
+  { id: "bucaramanga", name: "Bucaramanga", league: "Primera A (COL)", tier: 2, req: 60, prestige: 46 },
+  { id: "pereira", name: "Dep. Pereira", league: "Primera A (COL)", tier: 2, req: 60, prestige: 46 },
+  { id: "pasto", name: "Dep. Pasto", league: "Primera A (COL)", tier: 2, req: 58, prestige: 42 },
+  { id: "aguilas", name: "Águilas Doradas", league: "Primera A (COL)", tier: 2, req: 58, prestige: 42 },
+];
+
+// Clásicos: tirarle una indirecta al rival de tu club enfurece a tu hinchada
+const RIVALS = {
+  river: "boca", boca: "river",
+  racing: "independiente", independiente: "racing",
+  sanlo: "huracan", huracan: "sanlo",
+  newells: "central", central: "newells",
+  estudiantes: "gimnasia", gimnasia: "estudiantes",
+  madrid: "barcelona", barcelona: "madrid",
+  atletico: "madrid",
+  inter: "milan", milan: "inter",
+  roma: "lazio", lazio: "roma",
+  juventus: "torino", torino: "juventus",
+  napoli: "roma",
+  liverpool: "mancity_utd", mancity_utd: "liverpool",
+  arsenal: "tottenham", tottenham: "arsenal",
+  mancity: "mancity_utd",
+  everton: "liverpool",
+  dortmund: "bayern", bayern: "dortmund",
+  nacional: "medellin", medellin: "nacional",
+  millonarios: "santafe", santafe: "millonarios",
+  america_cali: "cali", cali: "america_cali",
+  sevilla: "betis", betis: "sevilla",
+  athletic: "realsociedad", realsociedad: "athletic",
+};
+
+const CANTERA = ["river", "newells", "boca"]; // canteras históricas argentinas
+const START_AGE = 16;
+const RETIRE_AGE = 38;
+
+// ---------- HELPERS ----------
+
+const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+const rf = (a, b) => a + Math.random() * (b - a);
+const club = (id) => CLUBS.find((c) => c.id === id);
+
+// Cada rol envejece distinto: el delantero explota joven y decae rápido (vive de piernas),
+// el arquero madura tarde y dura hasta el final (vive de lectura de juego)
+function ageDelta(age, pos) {
+  const g = posGroup(pos);
+  const shift = g === "gk" ? 4 : g === "def" ? 2 : g === "mid" ? 1 : 0;
+  const a = age - shift;
+  if (a <= 21) return rf(2.5, 4.5);
+  if (a <= 25) return rf(1.5, 3);
+  if (a <= 29) return rf(0, 1.5);
+  if (a <= 32) return rf(-1.5, 0.5);
+  return rf(-3.5, -1);
+}
+
+function marketValue(ovr, age, pos) {
+  const base = Math.pow(Math.max(ovr - 40, 1), 3) * 120;
+  const ageFactor = age <= 24 ? 1.4 : age <= 28 ? 1.1 : age <= 31 ? 0.8 : 0.4;
+  const posFactor = { atk: 1.15, mid: 1.0, def: 0.85, gk: 0.7 }[posGroup(pos)]; // el mercado paga goles
+  return Math.round(base * ageFactor * posFactor);
+}
+
+function fmtMoney(n) {
+  if (n >= 1e6) return `€${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `€${Math.round(n / 1e3)}K`;
+  return `€${n}`;
+}
+
+const trainerCost = (s) => Math.round(s.wage * 0.4);
+const fisioCost = (s) => Math.round(s.wage * 0.35);
+const agentCost = (s) => Math.round(s.wage * 1.5);
+
+// Temporada mala (te avisan) vs desastrosa (te sueltan directo).
+// A un juvenil (20 o menos) se lo banca mucho más.
+const isBadSeason = (season) => season && (season.age <= 20 ? (season.rating < 5.5 || season.pj < 10) : (season.rating < 5.8 || season.pj < 10));
+const isTerribleSeason = (season) => season && (season.age <= 20 ? (season.rating < 5.0 || season.pj < 5) : (season.rating < 5.2 || season.pj < 6));
+// Te sueltan con dos malas seguidas, o con una sola desastrosa
+const isReleased = (season, badStreak) => isTerribleSeason(season) || (isBadSeason(season) && badStreak >= 1);
+
+// Si sos joven y el club es grande, en vez de soltarte te mandan a préstamo
+const shouldLoan = (state, season) =>
+  state.age <= 21 && club(state.clubId).tier >= 2 && !state.parentClubId;
+
+// Opciones de préstamo: clubes más chicos donde sí vas a jugar
+function loanOptions(state) {
+  const current = club(state.clubId);
+  return CLUBS.filter((c) => c.tier < current.tier && c.id !== state.clubId && state.ovr >= c.req - 6)
+    .sort((a, b) => b.prestige - a.prestige)
+    .slice(0, 3);
+}
+
+// Hitos de carrera: se anuncian al cruzarlos
+const MILESTONE_DEFS = [
+  { stat: "gls", marks: [50, 100, 200, 300, 400], label: (n) => `⚽ ¡Llegaste a ${n} goles en tu carrera!` },
+  { stat: "ast", marks: [50, 100, 200], label: (n) => `🎯 ¡${n} asistencias en tu carrera!` },
+  { stat: "pj", marks: [100, 300, 500, 700], label: (n) => `👕 ¡${n} partidos como profesional!` },
+  { stat: "caps", marks: [25, 50, 100], label: (n) => `🇦🇷 ¡${n} partidos con la selección!` },
+  { stat: "trophies", marks: [5, 10, 20], label: (n) => `🏆 ¡${n} títulos en tu vitrina!` },
+];
+
+function crossedMilestones(prev, curr) {
+  const out = [];
+  MILESTONE_DEFS.forEach((m) => {
+    m.marks.forEach((mark) => {
+      if (prev[m.stat] < mark && curr[m.stat] >= mark) out.push(m.label(mark));
+    });
+  });
+  return out;
+}
+
+// Leyendas por posición para la comparación final
+const posGroup = (p) => ["DC", "ED", "EI", "MCO"].includes(p) ? "atk" : ["MC", "MCD", "MD", "MI"].includes(p) ? "mid" : p === "POR" ? "gk" : "def";
+const LEGENDS = {
+  atk: { name: "Messi", peak: 95, statLabel: "goles", statOf: (s) => s.history.reduce((a, h) => a + h.gls, 0), statRef: 650 },
+  mid: { name: "Iniesta", peak: 92, statLabel: "asistencias", statOf: (s) => s.history.reduce((a, h) => a + h.ast, 0), statRef: 280 },
+  def: { name: "Maldini", peak: 94, statLabel: "partidos", statOf: (s) => s.history.reduce((a, h) => a + h.pj, 0), statRef: 750 },
+  gk: { name: "Buffon", peak: 93, statLabel: "partidos", statOf: (s) => s.history.reduce((a, h) => a + h.pj, 0), statRef: 800 },
+};
+
+function legacyVerdict(state, peak) {
+  const ballons = state.trophies.filter((t) => t.name === "Balón de Oro").length;
+  const mundial = state.trophies.some((t) => t.name === "Mundial");
+  const leg = LEGENDS[posGroup(state.pos)];
+  if (ballons >= 3 || (peak >= 93 && mundial)) return `Estás en la conversación con ${leg.name}. Una carrera irrepetible.`;
+  if (peak >= 88 && state.trophies.length >= 3) return "Ídolo continental: tu camiseta se va a retirar.";
+  if (peak >= 80) return "Referente de Primera División y de la selección.";
+  if (peak >= 70) return "Sólida carrera profesional: vivís del fútbol y con orgullo.";
+  return "Guerrero del Ascenso: pocos flashes, mucho barro. Respeto total.";
+}
+
+// ---------- SIMULACIÓN DE TEMPORADA ----------
+
+// Riesgo de lesión: sube con la edad y con cada lesión previa (cuerpo castigado).
+// El fisio lo reduce un 85%. Exportado para mostrarlo en la carta de pretemporada.
+function injuryRisk(state, withFisio) {
+  const base = clamp(0.08 + Math.max(state.age - 26, 0) * 0.025 + (state.injuries || 0) * 0.04, 0.08, 0.4);
+  return withFisio ? base * 0.15 : base;
+}
+
+function playSeason(state) {
+  const c = club(state.clubId);
+  const ovr = state.ovr;
+  // hinchada en contra por la indirecta al clásico rival: menos minutos y presión
+  const angryPenalty = state.angry ? 0.8 : 1;
+  // a un juvenil no se le exige como a un profesional hecho: la vara baja con la edad
+  const youth = state.age <= 20;
+  const effReq = youth ? c.req - (21 - state.age) * 3 : c.req;
+  let fit = clamp(((ovr - effReq) / 15 + 0.6) * angryPenalty, 0.15, 1);
+  // los pibes del club van sumando minutos de rotación aunque no les dé el nivel
+  if (youth) fit = Math.max(fit, 0.3);
+  // ¿Estás peleando el puesto con un juvenil que viene pisando fuerte?
+  let duelResult = null;
+  if (state.fightingDuel) {
+    const winChance = clamp(0.5 + (ovr - effReq) / 30 - Math.max(state.age - 29, 0) * 0.05, 0.15, 0.85);
+    if (Math.random() < winChance) {
+      duelResult = "won";
+      fit = clamp(fit * 1.15, 0.15, 1); // le ganaste el duelo: el DT te ratifica
+    } else {
+      duelResult = "lost";
+      fit = clamp(fit * 0.45, 0.1, 1); // el pibe te pasó por arriba: al banco
+    }
+  }
+  const injured = Math.random() < injuryRisk(state, state.fisio);
+  const severeInjury = injured && Math.random() < 0.25; // 1 de 4 lesiones es grave
+  const pj = Math.round(clamp(fit * rf(0.75, 1.1) * (injured ? rf(0.3, 0.55) : 1), 0.1, 1) * 38);
+  const isAtk = ["DC", "ED", "EI", "MCO"].includes(state.pos);
+  const isMid = ["MC", "MCD", "MD", "MI"].includes(state.pos);
+  const gls = state.pos === "POR" ? 0 : Math.round(pj * (isAtk ? rf(0.25, 0.65) : isMid ? rf(0.08, 0.2) : rf(0.01, 0.06)) * (ovr / 80));
+  const ast = state.pos === "POR" ? 0 : Math.round(pj * (isAtk ? rf(0.1, 0.3) : isMid ? rf(0.15, 0.35) : rf(0.02, 0.1)) * (ovr / 80));
+  const g = posGroup(state.pos);
+  // el delantero es volátil: si no hace goles, rinde mal aunque juegue bien
+  let rating;
+  if (g === "atk") {
+    const golesPorPartido = pj > 0 ? gls / pj : 0;
+    rating = clamp(rf(4.9, 6.6) + golesPorPartido * 2.2 + (ovr - effReq) / 35 + (pj > 25 ? 0.2 : -0.3) - (state.angry ? 0.5 : 0), 4.5, 9.8);
+  } else if (g === "gk") {
+    // el arquero es parejo: pocas temporadas brillantes, pocas desastrosas
+    rating = clamp(rf(5.8, 7.1) + (ovr - effReq) / 35 + (pj > 25 ? 0.2 : -0.4) - (state.angry ? 0.4 : 0), 4.8, 9.2);
+  } else {
+    rating = clamp(rf(5.4, 7.4) + (ovr - effReq) / 30 + (pj > 25 ? 0.3 : -0.3) - (state.angry ? 0.5 : 0), 4.5, 9.8);
+  }
+
+  // ¿Tu club sale campeón? Se compara con los demás de SU liga (no de todo el mundo)
+  const leaguePeers = CLUBS.filter((x) => x.league === c.league);
+  const leagueMax = Math.max(...leaguePeers.map((x) => x.prestige));
+  // solo los que pelean arriba tienen chance real; el gap con el mejor manda
+  const titleChance = clamp(0.30 - (leagueMax - c.prestige) / 40, 0.01, 0.40);
+  const champion = Math.random() < titleChance;
+
+  const prestigeBoost = 0.6 + (c.prestige / 100) * 0.9;
+  const minutesBoost = 0.5 + fit * 0.6;
+  let base = ageDelta(state.age, state.pos);
+  if (base < 0 && state.fisio) base *= 0.4;
+  let growth = base * prestigeBoost * minutesBoost;
+  if (state.trainerBoost) growth = growth > 0 ? growth * 1.4 : growth + 1;
+  if (rating >= 7.5) growth += 0.6;
+  // techo blando: cada punto cuesta más cuanto más arriba estás.
+  // Pasar de 60 a 70 es una buena carrera; de 85 a 92 es cosa de elegidos.
+  if (growth > 0) {
+    const ceiling = clamp(1 - (ovr - 55) / 48, 0.1, 1);
+    growth *= ceiling;
+  }
+  if (injured) growth -= severeInjury ? 3 : 1; // una lesión grave te marca el físico
+  const newOvr = clamp(Math.round((ovr + growth) * 10) / 10, 40, 99);
+
+  return { pj, gls, ast, rating: Math.round(rating * 10) / 10, newOvr, injured, severeInjury, champion, duelResult };
+}
+
+// Selección nacional: te convocan si tu nivel da (más fácil con buen rating).
+// Cada 2 temporadas hay torneo: alterna Copa América y Mundial.
+function playNationalTeam(state, seasonRating) {
+  const convocado = state.ovr >= 73 && seasonRating >= 6.3 && state.age >= 18;
+  if (!convocado) return null;
+  const isAtk = ["DC", "ED", "EI", "MCO"].includes(state.pos);
+  const caps = Math.round(rf(4, 9));
+  const goals = state.pos === "POR" ? 0 : Math.round(caps * (isAtk ? rf(0.3, 0.7) : rf(0.05, 0.25)));
+  let torneo = null;
+  if (state.age % 2 === 0) {
+    const name = state.age % 4 === 0 ? "Mundial" : "Copa América";
+    const winChance = clamp(0.15 + (state.ovr - 75) / 80, 0.1, 0.5);
+    torneo = { name, won: Math.random() < winChance };
+  }
+  return { caps, goals, torneo };
+}
+
+// Ofertas del mercado. Si te soltaron (forced), también ofertan clubes
+// más chicos y garantizamos al menos una salida.
+function generateOffers(state, seasonRating, forced) {
+  const current = club(state.clubId);
+  const offers = [];
+  CLUBS.forEach((c) => {
+    if (c.id === state.clubId) return;
+    if ((state.blockedClubs || {})[c.id] > 0) return; // te soltaron: están resentidos
+    if (!forced && c.tier < current.tier) return;
+    if (state.ovr < c.req - (forced ? 10 : 3)) return;
+    const hinted = state.hintedClub === c.id;
+    // ¿Este club necesita un jugador de tu posición este mercado? A veces simplemente no.
+    // La indirecta ayuda a que te tengan en cuenta, pero no crea la necesidad.
+    const needsYourPos = Math.random() < (hinted ? 0.65 : 0.45);
+    let chance = 0.1 + (state.ovr - c.req) * 0.02 + (seasonRating - 6.5) * 0.15;
+    if (hinted) chance += 0.45;
+    if (state.agent) chance += 0.12;
+    if (forced && c.tier <= current.tier) chance += 0.3; // los chicos te ven accesible
+    if (!needsYourPos && !forced) chance *= 0.15; // no buscan tu puesto: casi imposible
+    if (Math.random() < clamp(chance, 0.02, 0.9)) {
+      const wage = Math.round(marketValue(state.ovr, state.age, state.pos) * rf(0.08, 0.12) * (forced ? 0.8 : 1));
+      offers.push({ clubId: c.id, wage, negotiated: false });
+    }
+  });
+  const sorted = offers.sort((a, b) => club(b.clubId).prestige - club(a.clubId).prestige).slice(0, forced ? 3 : 2);
+  // red de seguridad: si te soltaron y nadie ofertó, un club humilde te levanta
+  if (forced && sorted.length === 0) {
+    const fallback = [...CLUBS].filter((c) => c.id !== state.clubId && !((state.blockedClubs || {})[c.id] > 0) && state.ovr >= c.req - 12)
+      .sort((a, b) => a.prestige - b.prestige)[0] || CLUBS[0];
+    sorted.push({ clubId: fallback.id, wage: Math.round(marketValue(state.ovr, state.age, state.pos) * 0.06), negotiated: false });
+  }
+  return sorted;
+}
+
+// ============================================================
+
+export default function App() {
+  const [screen, setScreen] = useState("identidad"); // identidad | posicion | cantera | mercado | pretemporada | fin
+  const [apellido, setApellido] = useState("");
+  const [numero, setNumero] = useState("10");
+  const [pierna, setPierna] = useState("Derecha");
+  const [pos, setPos] = useState(null);
+
+  const [state, setState] = useState(null);
+  const [lastSeason, setLastSeason] = useState(null);
+  const [offers, setOffers] = useState([]);
+  const [released, setReleased] = useState(false);
+  const [negMsg, setNegMsg] = useState(null);
+  const [pendingHint, setPendingHint] = useState(null); // indirecta elegida (opcional) antes de la acción
+  const [postDiario, setPostDiario] = useState(null); // pantalla que sigue después de la tapa del diario
+  const [diarioKind, setDiarioKind] = useState("normal");
+
+  // Toda temporada termina en la tapa del diario; después se sigue a la pantalla que corresponda
+  function goDiario(nextScreen, kind) {
+    setPostDiario(nextScreen);
+    setDiarioKind(kind);
+    setScreen("diario");
+  }
+
+  // ---------- FLUJO ----------
+
+  function confirmIdentity() {
+    if (!pos) return;
+    setState({
+      apellido: apellido.trim().toUpperCase() || "JUGADOR",
+      numero, pierna, pos,
+      age: START_AGE, ovr: 50, clubId: null, hintedClub: null,
+      money: 0, wage: 20000, agent: false, trainerBoost: false, fisio: false,
+      caps: 0, capGoals: 0, trophies: [], angry: false,
+      parentClubId: null, loanYearsLeft: 0,
+      duelPending: false, duelOfferClub: null, fightingDuel: false,
+      hintCooldown: 0,
+      badStreak: 0, blockedClubs: {},
+      injuries: 0, formative: [], idolo: false, homecomingDone: false, homeOffer: null,
+      history: [],
+    });
+    setScreen("cantera");
+  }
+
+  function signCantera(clubId) {
+    const s = { ...state, clubId };
+    setState(s);
+    runSeason(s);
+  }
+
+  // Simula la temporada y decide qué pantalla sigue
+  function runSeason(s) {
+    const season = playSeason(s);
+    const natl = playNationalTeam(s, season.rating);
+    const newTrophies = [];
+    let prize = 0;
+    if (season.champion) {
+      newTrophies.push({ name: club(s.clubId).league, clubId: s.clubId, age: s.age });
+      prize += Math.round(s.wage * 0.5); // premio por salir campeón
+    }
+    if (natl?.torneo?.won) {
+      newTrophies.push({ name: natl.torneo.name, clubId: null, age: s.age });
+      prize += Math.round(s.wage * 0.4);
+    }
+    // Balón de Oro: solo para los mejores del mundo en un año brillante
+    const ballon = s.ovr >= 88 && season.rating >= 7.6 && Math.random() < clamp((s.ovr - 86) / 18, 0.05, 0.7);
+    if (ballon) {
+      newTrophies.push({ name: "Balón de Oro", clubId: null, age: s.age });
+      prize += Math.round(s.wage * 0.6);
+    }
+    const seasonWithAge = { ...season, age: s.age };
+    const bad = isBadSeason(seasonWithAge);
+    // si sos ídolo del club de tus amores, la hinchada no deja que te suelten
+    const isHome = s.idolo && s.formative.includes(s.clubId);
+    const releasedNow = !s.parentClubId && !isHome && isReleased(seasonWithAge, s.badStreak);
+    const entry = {
+      age: s.age, clubId: s.clubId, ovr: Math.round(season.newOvr),
+      pj: season.pj, gls: season.gls, ast: season.ast, rating: season.rating, injured: season.injured,
+      role: season.pj >= 28 ? "Titular" : season.pj >= 14 ? "Rotación" : "Suplente",
+      duelResult: season.duelResult,
+      champion: season.champion, natl, wasAngry: s.angry, ballon,
+      onLoan: !!s.parentClubId, parentClubId: s.parentClubId,
+      severeInjury: season.severeInjury,
+      warning: bad && !releasedNow && !s.parentClubId && !isHome, // te bancan, pero avisan
+    };
+    // los clubes resentidos se van olvidando de a poco
+    const cooledBlocked = {};
+    Object.entries(s.blockedClubs || {}).forEach(([id, n]) => { if (n - 1 > 0) cooledBlocked[id] = n - 1; });
+    // los clubes donde jugaste de pibe (hasta los 20) te formaron
+    const formative = s.age <= 20 && !s.formative.includes(s.clubId) ? [...s.formative, s.clubId] : s.formative;
+    const next = {
+      ...s,
+      age: s.age + 1,
+      ovr: season.newOvr,
+      badStreak: bad ? s.badStreak + 1 : 0,
+      blockedClubs: cooledBlocked,
+      injuries: s.injuries + (season.injured ? 1 : 0),
+      formative,
+      money: s.money + s.wage + prize,
+      caps: s.caps + (natl?.caps || 0),
+      capGoals: s.capGoals + (natl?.goals || 0),
+      trophies: [...s.trophies, ...newTrophies],
+      hintedClub: null,
+      trainerBoost: false,
+      fisio: false,
+      angry: false, // la bronca de la hinchada dura una temporada
+      fightingDuel: false,
+      hintCooldown: Math.max((s.hintCooldown || 0) - 1, 0),
+      history: [...s.history, entry],
+    };
+    // ¿Cruzaste algún hito histórico esta temporada?
+    const sum = (hist, k) => hist.reduce((a, h) => a + (h[k] || 0), 0);
+    const prevTotals = { gls: sum(s.history, "gls"), ast: sum(s.history, "ast"), pj: sum(s.history, "pj"), caps: s.caps, trophies: s.trophies.length };
+    const currTotals = { gls: prevTotals.gls + season.gls, ast: prevTotals.ast + season.ast, pj: prevTotals.pj + season.pj, caps: next.caps, trophies: next.trophies.length };
+    entry.milestones = crossedMilestones(prevTotals, currTotals);
+
+    setLastSeason(entry);
+
+    if (next.age >= RETIRE_AGE) { setState(next); goDiario("fin", "fin"); return; }
+
+    // --- Estás a préstamo: no hay mercado hasta que termine ---
+    if (next.parentClubId) {
+      next.loanYearsLeft = s.loanYearsLeft - 1;
+      setState(next);
+      goDiario(next.loanYearsLeft <= 0 ? "finPrestamo" : "pretemporada", "loanSeason");
+      return;
+    }
+
+    // --- Sos joven en un grande y rendiste mal: a préstamo sin vueltas ---
+    if (bad && shouldLoan(s, entry)) {
+      setState({ ...next, badStreak: 0 });
+      goDiario("prestamo", "prestamo");
+      return;
+    }
+
+    // --- Rendiste mal dos veces seguidas (o una desastrosa) ---
+    if (releasedNow) {
+      // el club que te suelta queda resentido 3 temporadas
+      const withBlock = { ...next, badStreak: 0, blockedClubs: { ...next.blockedClubs, [s.clubId]: 3 } };
+      setState(withBlock);
+      setReleased(true);
+      setOffers(generateOffers(withBlock, season.rating, true));
+      setNegMsg(null);
+      goDiario("mercado", "released");
+      return;
+    }
+
+    // --- Duelo generacional: sos veterano, no brillás, y un pibe viene por tu puesto ---
+    if (next.age >= 29 && !next.parentClubId && season.rating < 6.5 && !bad && Math.random() < 0.35) {
+      const escape = CLUBS.filter((c) => c.id !== next.clubId && c.tier <= club(next.clubId).tier
+        && !((next.blockedClubs || {})[c.id] > 0) && next.ovr >= c.req - 6)
+        .sort((a, b) => b.prestige - a.prestige)[0];
+      if (escape) {
+        setState({ ...next, duelPending: true, duelOfferClub: escape.id });
+        goDiario("duelo", "duelo");
+        return;
+      }
+    }
+
+    // --- La vuelta a casa: sos un jugador de renombre y el club que te formó te llama ---
+    if (!next.homecomingDone && next.age >= 29 && next.ovr >= 78) {
+      const home = next.formative.filter((id) => id !== next.clubId).map(club)
+        .sort((a, b) => b.prestige - a.prestige)[0];
+      if (home && Math.random() < 0.5) {
+        setState({ ...next, homeOffer: home.id });
+        goDiario("vuelta", "vuelta");
+        return;
+      }
+    }
+
+    setState(next);
+    setReleased(false);
+    setOffers(generateOffers(next, season.rating, false));
+    setNegMsg(null);
+    goDiario("mercado", "normal");
+  }
+
+  // Duelo generacional: pelear el puesto o irte al club que te llama
+  function answerDuel(fight) {
+    if (fight) {
+      setState((s) => ({ ...s, duelPending: false, duelOfferClub: null, fightingDuel: true }));
+    } else {
+      const c = club(state.duelOfferClub);
+      setState((s) => ({
+        ...s,
+        clubId: c.id,
+        wage: Math.round(marketValue(s.ovr, s.age, s.pos) * 0.08),
+        duelPending: false, duelOfferClub: null, badStreak: 0,
+      }));
+    }
+    setScreen("pretemporada");
+  }
+
+  // Respuesta al llamado del club de tus amores
+  function answerHome(accept) {
+    const home = club(state.homeOffer);
+    if (accept) {
+      setState((s) => ({
+        ...s,
+        clubId: home.id,
+        wage: Math.round(s.wage * 0.6), // volvés por amor, no por plata
+        idolo: true,
+        homecomingDone: true,
+        homeOffer: null,
+        badStreak: 0,
+      }));
+    } else {
+      // te pueden volver a llamar más adelante
+      setState((s) => ({ ...s, homeOffer: null }));
+    }
+    setScreen(accept ? "pretemporada" : "mercado");
+    if (!accept) {
+      setReleased(false);
+      setOffers(generateOffers(state, lastSeason?.rating || 6.5, false));
+      setNegMsg(null);
+    }
+  }
+
+  // Elegís a qué club irte a préstamo (1 o 2 temporadas, al azar)
+  function chooseLoan(loanClub) {
+    const years = Math.random() < 0.6 ? 1 : 2;
+    setState((s) => ({ ...s, parentClubId: s.clubId, clubId: loanClub.id, loanYearsLeft: years }));
+    setScreen("pretemporada");
+  }
+
+  // Fin del préstamo: volvés al club dueño de tu pase o fichás donde estabas
+  function endLoan(stay) {
+    setState((s) => {
+      if (stay) {
+        // el club del préstamo te compra: sueldo nuevo acorde
+        return { ...s, parentClubId: null, loanYearsLeft: 0, wage: Math.round(marketValue(s.ovr, s.age, s.pos) * 0.09) };
+      }
+      return { ...s, clubId: s.parentClubId, parentClubId: null, loanYearsLeft: 0 };
+    });
+    setScreen("pretemporada");
+  }
+
+  // MERCADO: elegir club (o quedarse, si no te soltaron)
+  function chooseClub(offer) {
+    const next = offer ? { ...state, clubId: offer.clubId, wage: offer.wage, badStreak: 0 } : state;
+    setState(next);
+    setOffers([]);
+    setScreen("pretemporada");
+  }
+
+  function negotiate(offer, idx) {
+    if (offer.negotiated) return;
+    const c = club(offer.clubId);
+    let chance = clamp(0.35 + (state.ovr - c.req) / 60, 0.2, 0.8);
+    if (state.agent) chance = clamp(chance + 0.2, 0, 0.95);
+    if (Math.random() < chance) {
+      setOffers((prev) => prev.map((o, i) => (i === idx ? { ...o, wage: Math.round(o.wage * 1.25), negotiated: true } : o)));
+      setNegMsg({ text: `${c.name} aceptó mejorar la oferta un 25%.`, ok: true });
+    } else if (Math.random() < (state.agent ? 0.1 : 0.35) && !(released && offers.length <= 1)) {
+      // nunca te dejamos sin la última salida si estás obligado a irte
+      setOffers((prev) => prev.filter((_, i) => i !== idx));
+      setNegMsg({ text: `${c.name} se molestó y retiró la oferta.`, ok: false });
+    } else {
+      setOffers((prev) => prev.map((o, i) => (i === idx ? { ...o, negotiated: true } : o)));
+      setNegMsg({ text: `${c.name} no mejora: es su oferta final.`, ok: false });
+    }
+  }
+
+  // PRETEMPORADA: invertir y jugar
+  function invest(decision) {
+    const hint = pendingHint; // la indirecta viene aparte, no gasta la acción
+    const hintIsRival = hint && RIVALS[state.clubId] === hint;
+    let s = { ...state, hintedClub: hint || null, angry: hintIsRival };
+    if (hint) s = { ...s, hintCooldown: Math.random() < 0.5 ? 3 : 4 }; // reutilizable cada 3-4 años
+    if (decision.trainer) { s = { ...s, money: s.money - trainerCost(s), trainerBoost: true }; }
+    if (decision.fisio) { s = { ...s, money: s.money - fisioCost(s), fisio: true }; }
+    if (decision.agent) { s = { ...s, money: s.money - agentCost(s), agent: true }; }
+    setPendingHint(null);
+    setState(s);
+    runSeason(s);
+  }
+
+  // clubes alcanzables para indirecta: tu nivel o un poco por encima, sin filtrar cantidad
+  // (el buscador de abajo se encarga de que no abrume)
+  const hintTargets = state && state.clubId
+    ? CLUBS.filter((c) => c.id !== state.clubId && c.tier >= club(state.clubId).tier && state.ovr >= c.req - 8)
+        .sort((a, b) => b.prestige - a.prestige)
+    : [];
+
+  // ---------- ESTILOS ----------
+
+  const S = {
+    // shell estable: mismo ancho y respiración en todas las pantallas, con safe-area para el notch
+    page: "min-h-screen bg-black text-white font-sans flex flex-col items-center px-4 pt-6 pb-10",
+    card: "w-full max-w-md mx-auto",
+    h1: "text-3xl font-bold mb-4",
+    label: "text-[11px] uppercase tracking-widest text-neutral-500 mb-1 block text-center",
+    input: "w-full bg-neutral-900 rounded-xl px-4 py-3.5 text-center text-lg outline-none focus:ring-1 ring-white/40",
+    btnPrimary: "bg-white text-black font-semibold rounded-full px-6 py-4 w-full disabled:opacity-30 transition active:scale-[0.97] text-base",
+    btnGhost: "border border-neutral-700 text-white rounded-full px-6 py-4 w-full transition active:scale-[0.97] text-base",
+    pill: "rounded-full px-4 py-2.5 text-sm font-semibold transition active:scale-95",
+  };
+
+  // ---------- PANTALLAS ----------
+
+  if (screen === "identidad") {
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <h1 className={S.h1}>Identidad</h1>
+          <Progress value={33} />
+          <div className="bg-neutral-950 rounded-2xl p-5 mt-5 space-y-4">
+            <div>
+              <span className={S.label}>Apellido</span>
+              <input className={S.input} value={apellido} onChange={(e) => setApellido(e.target.value.toUpperCase())} placeholder="Tu apellido" maxLength={14} style={{ textTransform: "uppercase" }} />
+            </div>
+            <div>
+              <span className={S.label}>Número</span>
+              <input className={S.input} value={numero} onChange={(e) => setNumero(e.target.value.replace(/\D/g, "").slice(0, 2))} />
+            </div>
+            <div>
+              <span className={S.label}>Pierna hábil</span>
+              <div className="flex bg-neutral-900 rounded-full p-1">
+                {["Izquierda", "Derecha"].map((p) => (
+                  <button key={p} onClick={() => setPierna(p)}
+                    className={`flex-1 rounded-full py-2.5 text-sm font-semibold transition ${pierna === p ? "bg-white text-black" : "text-neutral-400"}`}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <button className={`${S.btnPrimary} mt-6`} onClick={() => setScreen("posicion")}>Continuar</button>
+          <Footer />
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === "posicion") {
+    const layout = [
+      ["EI", "DC", "ED"], [null, "MCO", null], ["MI", "MC", "MD"],
+      [null, "MCD", null], ["LI", "DFC", "LD"], [null, "POR", null],
+    ];
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <h1 className={S.h1}>Posición</h1>
+          <Progress value={66} />
+          <div className="mt-5 rounded-2xl border border-white/20 bg-gradient-to-b from-emerald-950 to-emerald-900 p-4">
+            {layout.map((row, i) => (
+              <div key={i} className="flex justify-around my-3">
+                {row.map((p, j) =>
+                  p ? (
+                    <button key={p} onClick={() => setPos(p)}
+                      className={`${S.pill} ${pos === p ? "bg-white text-black shadow-lg shadow-white/30" : "bg-emerald-950/80 text-emerald-100"}`}>
+                      {p}
+                    </button>
+                  ) : <span key={j} className="px-4" />
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3 mt-6">
+            <button className={`${S.btnGhost} flex-1`} onClick={() => setScreen("identidad")}>Volver</button>
+            <button className={`${S.btnPrimary} flex-1`} disabled={!pos} onClick={confirmIdentity}>Confirmar identidad</button>
+          </div>
+          <Footer />
+        </div>
+      </div>
+    );
+  }
+
+  if (!state) return null;
+
+  const Header = () => (
+    <div className="flex items-center gap-3 bg-neutral-950 rounded-2xl p-4 mb-4">
+      <div className="bg-gradient-to-b from-amber-500 to-amber-700 rounded-xl w-16 h-16 flex flex-col items-center justify-center shrink-0">
+        <span className="text-[9px] uppercase tracking-wide text-amber-100">OVR</span>
+        <span className="text-2xl font-bold">{Math.round(state.ovr)}</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <span className="bg-emerald-900 text-emerald-200 text-xs font-semibold rounded-md px-2 py-0.5">#{state.numero} {state.pos}</span>
+        <p className="font-bold text-lg truncate mt-1">{state.clubId ? club(state.clubId).name : "Libre"}</p>
+        <p className="text-xs text-neutral-500">
+          {state.parentClubId ? `A préstamo de ${club(state.parentClubId).name}` : state.clubId ? club(state.clubId).league : "Sin club"}
+        </p>
+      </div>
+      <div className="text-right shrink-0">
+        <p className="text-xs text-neutral-500">EDAD <span className="text-white font-bold text-base">{state.age}</span></p>
+        <p className="text-xs text-neutral-500">VALOR <span className="text-white font-bold text-base">{fmtMoney(marketValue(state.ovr, state.age, state.pos))}</span></p>
+        <p className="text-xs text-neutral-500">BANCO <span className="text-emerald-400 font-bold text-base">{fmtMoney(state.money)}</span></p>
+      </div>
+    </div>
+  );
+
+  const CareerChart = () => {
+    const h = state.history;
+    if (h.length < 2) return null;
+    const w = 320, ht = 56, pad = 6;
+    const min = Math.min(...h.map((x) => x.ovr)) - 3;
+    const max = Math.max(...h.map((x) => x.ovr)) + 3;
+    const X = (i) => pad + (i / (h.length - 1)) * (w - pad * 2);
+    const Y = (v) => ht - pad - ((v - min) / (max - min)) * (ht - pad * 2);
+    const pts = h.map((x, i) => `${X(i)},${Y(x.ovr)}`).join(" ");
+    return (
+      <div className="bg-neutral-950 rounded-2xl px-4 py-3 mb-4">
+        <div className="flex justify-between text-[9px] uppercase tracking-widest text-neutral-600 mb-1">
+          <span>Tu carrera · OVR</span>
+          <span>{h[0].age} → {h[h.length - 1].age} años</span>
+        </div>
+        <svg viewBox={`0 0 ${w} ${ht}`} className="w-full" style={{ height: 56 }}>
+          <polyline points={pts} fill="none" stroke="#10b981" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          {h.map((x, i) => (
+            x.champion ? <circle key={i} cx={X(i)} cy={Y(x.ovr)} r="3.5" fill="#f59e0b" />
+            : x.injured ? <circle key={i} cx={X(i)} cy={Y(x.ovr)} r="2.5" fill="#ef4444" />
+            : null
+          ))}
+        </svg>
+        <div className="flex gap-3 text-[9px] text-neutral-600 mt-0.5">
+          <span><span className="text-amber-500">●</span> título</span>
+          <span><span className="text-red-500">●</span> lesión</span>
+        </div>
+      </div>
+    );
+  };
+
+  const SeasonSummary = () => lastSeason && (
+    <div className="bg-neutral-950 rounded-2xl p-4 mb-4">
+      <div className="flex justify-between items-center">
+        <div>
+          <p className="text-xs text-neutral-500 uppercase tracking-wide">
+            Temporada {lastSeason.age} años{lastSeason.injured && <span className="text-red-400 normal-case">{lastSeason.severeInjury ? " · lesión grave 🚑" : " · te lesionaste"}</span>}
+          </p>
+          <p className="text-sm mt-1">
+            <span className={`mr-1.5 text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${lastSeason.role === "Titular" ? "bg-emerald-900 text-emerald-300" : lastSeason.role === "Rotación" ? "bg-amber-900 text-amber-300" : "bg-neutral-800 text-neutral-400"}`}>{lastSeason.role}</span>
+            {lastSeason.pj} PJ · {lastSeason.gls} goles · {lastSeason.ast} asist.</p>
+        </div>
+        <div className={`text-2xl font-bold ${lastSeason.rating >= 7 ? "text-emerald-400" : lastSeason.rating < 5.8 ? "text-red-400" : "text-neutral-300"}`}>
+          {lastSeason.rating}
+        </div>
+      </div>
+      {(lastSeason.champion || lastSeason.natl || lastSeason.wasAngry || lastSeason.ballon || lastSeason.warning || lastSeason.duelResult || (lastSeason.milestones || []).length > 0) && (
+        <div className="mt-3 pt-3 border-t border-neutral-800 space-y-1.5">
+          {lastSeason.champion && (
+            <p className="text-sm text-amber-300">🏆 ¡{club(lastSeason.clubId).name} campeón de la {club(lastSeason.clubId).league}! Cobraste un premio.</p>
+          )}
+          {lastSeason.natl && (
+            <p className="text-sm text-sky-300">🇦🇷 Convocado a la selección: {lastSeason.natl.caps} PJ{lastSeason.natl.goals > 0 ? `, ${lastSeason.natl.goals} goles` : ""}.</p>
+          )}
+          {lastSeason.natl?.torneo && (
+            <p className={`text-sm ${lastSeason.natl.torneo.won ? "text-amber-300" : "text-neutral-400"}`}>
+              {lastSeason.natl.torneo.won ? `🏆 ¡Ganaste ${lastSeason.natl.torneo.name === "Mundial" ? "el" : "la"} ${lastSeason.natl.torneo.name}!` : `Jugaste ${lastSeason.natl.torneo.name === "Mundial" ? "el" : "la"} ${lastSeason.natl.torneo.name}, pero no alcanzó.`}
+            </p>
+          )}
+          {lastSeason.ballon && (
+            <p className="text-sm text-yellow-300 font-semibold">✨ ¡Ganaste el Balón de Oro! Sos el mejor jugador del mundo.</p>
+          )}
+          {(lastSeason.milestones || []).map((m, i) => (
+            <p key={i} className="text-sm text-violet-300">{m}</p>
+          ))}
+          {lastSeason.duelResult === "won" && (
+            <p className="text-sm text-violet-300">🥊 Le ganaste el duelo al pibe: el DT te ratificó como referente.</p>
+          )}
+          {lastSeason.duelResult === "lost" && (
+            <p className="text-sm text-red-400">🥊 El pibe te pasó por arriba y te comió el puesto. Pasaste el año en el banco.</p>
+          )}
+          {lastSeason.warning && (
+            <p className="text-sm text-orange-400">⚠️ En {club(lastSeason.clubId).name} no están conformes: otra temporada así y te sueltan.</p>
+          )}
+          {lastSeason.wasAngry && (
+            <p className="text-sm text-red-400">😡 Tu hinchada no te perdonó la indirecta al clásico rival: jugaste presionado todo el año.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const HistoryTable = ({ compact }) => (
+    <div className="bg-neutral-950 rounded-2xl p-4">
+      <div className="grid grid-cols-6 text-[10px] uppercase tracking-wider text-neutral-500 pb-2 border-b border-neutral-800">
+        <span>Edad</span><span className="col-span-2">Club</span><span className="text-right">OVR</span><span className="text-right">PJ</span><span className="text-right">GLS</span>
+      </div>
+      {(compact ? state.history.slice(-6) : state.history).map((h, i) => (
+        <div key={i} className="grid grid-cols-6 text-sm py-1.5 border-b border-neutral-900 last:border-0">
+          <span className="text-neutral-400">{h.age}</span>
+          <span className="col-span-2 truncate">
+            {club(h.clubId).name}
+            {h.onLoan && <span className="text-sky-400 text-[10px]"> (prést.)</span>}
+            {h.champion && <span className="text-amber-400"> 🏆</span>}
+          </span>
+          <span className="text-right font-semibold">{h.ovr}</span>
+          <span className="text-right text-neutral-400">{h.pj}</span>
+          <span className="text-right text-neutral-400">{h.gls}</span>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (screen === "cantera") {
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <Header />
+          <div className="bg-neutral-950 rounded-2xl p-5">
+            <h2 className="text-xl font-bold">Oferta de cantera</h2>
+            <p className="text-sm text-neutral-400 mt-1 mb-2">Tres clubes quieren sumarte a su proyecto juvenil. Elegí dónde empieza tu carrera.</p>
+            <p className="text-xs text-neutral-500 mb-4">Ojo: un club más grande te desarrolla más rápido, pero vas a pelear más el puesto — y si no jugás, te sueltan.</p>
+            <div className="grid grid-cols-3 gap-2">
+              {CANTERA.map((id) => {
+                const c = club(id);
+                return (
+                  <button key={id} onClick={() => signCantera(id)}
+                    className="bg-neutral-900 rounded-xl p-3 text-center hover:bg-neutral-800 transition active:scale-95">
+                    <p className="text-[10px] text-neutral-500 mb-1">Fichar por</p>
+                    <p className="font-bold text-sm leading-tight">{c.name}</p>
+                    <p className="text-[10px] text-neutral-500 mt-2">{c.league}</p>
+                    <p className="text-[10px] text-emerald-400 mt-1">Desarrollo {c.prestige}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          </div>
+          <Footer />
+      </div>
+    );
+  }
+
+  // --- PRÉSTAMO: sos joven en un grande y no jugaste — elegí dónde foguearte ---
+  if (screen === "prestamo") {
+    const options = loanOptions(state);
+    const c = club(state.clubId);
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <Header />
+          <SeasonSummary />
+          <div className="bg-neutral-950 rounded-2xl p-5 border border-sky-900">
+            <h2 className="text-xl font-bold text-sky-300">{c.name} te manda a préstamo</h2>
+            <p className="text-sm text-neutral-300 mt-1 mb-4">Sos joven y necesitás rodaje. El club te ofrece estas opciones — elegí donde te sientas más cómodo. Si mejorás, decidís si volvés o te quedás.</p>
+            <div className="space-y-3">
+              {options.map((o) => (
+                <button key={o.id} onClick={() => chooseLoan(o)}
+                  className="w-full text-left bg-neutral-900 rounded-xl p-4 hover:bg-neutral-800 transition active:scale-[0.98]">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="font-bold">{o.name}</p>
+                      <p className="text-xs text-neutral-500">{o.league} · Desarrollo {o.prestige}</p>
+                    </div>
+                    <span className="text-xs text-sky-300">Vas a jugar seguro</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+          </div>
+          <Footer />
+      </div>
+    );
+  }
+
+  // --- FIN DEL PRÉSTAMO: ¿volvés o te quedás? ---
+  if (screen === "finPrestamo") {
+    const parent = club(state.parentClubId);
+    const here = club(state.clubId);
+    const canStay = lastSeason && lastSeason.rating >= 6.3;
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <Header />
+          <SeasonSummary />
+          <div className="bg-neutral-950 rounded-2xl p-5">
+            <h2 className="text-xl font-bold">Se terminó el préstamo</h2>
+            <p className="text-sm text-neutral-400 mt-1 mb-4">
+              {canStay
+                ? `En ${here.name} están contentos con vos y quieren comprar tu pase. ${parent.name} espera tu vuelta. Vos decidís.`
+                : `Tu paso por ${here.name} no convenció como para que compren tu pase. Volvés a ${parent.name}.`}
+            </p>
+            <div className="space-y-2">
+              <button className={S.btnPrimary} onClick={() => endLoan(false)}>Volver a {parent.name}</button>
+              {canStay && (
+                <button className={`${S.btnGhost} w-full`} onClick={() => endLoan(true)}>Fichar definitivo por {here.name}</button>
+              )}
+            </div>
+          </div>
+          </div>
+          <Footer />
+      </div>
+    );
+  }
+
+  // --- TAPA DEL DIARIO: el titular de tu temporada ---
+  if (screen === "diario") {
+    const e = lastSeason;
+    const c = club(e.clubId);
+    const ap = state.apellido;
+    let head, sub;
+    if (diarioKind === "fin") { head = `GRACIAS, ${ap}`; sub = `Después de ${state.history.length} temporadas, cuelga los botines una parte de la historia del fútbol argentino.`; }
+    else if (e.ballon) { head = "EL MEJOR DEL MUNDO"; sub = `${ap} gana el Balón de Oro tras una temporada inolvidable en ${c.name}.`; }
+    else if (e.natl?.torneo?.won && e.natl.torneo.name === "Mundial") { head = "CAMPEONES DEL MUNDO"; sub = `${ap} y la Selección tocan el cielo con las manos.`; }
+    else if (e.natl?.torneo?.won) { head = "¡CAMPEÓN DE AMÉRICA!"; sub = `${ap} levanta la Copa con la Selección.`; }
+    else if (e.champion) { head = `¡${c.name.toUpperCase()} CAMPEÓN!`; sub = `${ap} clave en la vuelta olímpica: ${e.gls > 0 ? `${e.gls} goles en ` : ""}${e.pj} partidos.`; }
+    else if (diarioKind === "prestamo") { head = "A FOGUEARSE"; sub = `${c.name} manda a ${ap} (${e.age}) a préstamo en busca de minutos.`; }
+    else if (diarioKind === "released") { head = "FIN DE CICLO"; sub = `${c.name} decide no contar más con ${ap}. El mercado espera.`; }
+    else if (diarioKind === "duelo") { head = "LA JOYA QUE PIDE PISTA"; sub = `Un juvenil presiona en ${c.name} y el puesto de ${ap} tambalea.`; }
+    else if (diarioKind === "vuelta") { head = "¿VUELVE A CASA?"; sub = `En el club de sus amores sueñan con la vuelta de ${ap}.`; }
+    else if (e.duelResult === "won") { head = "EL VIEJO Y QUERIDO"; sub = `${ap} le ganó el duelo a la joventud y sigue siendo dueño del puesto.`; }
+    else if (e.duelResult === "lost") { head = "CAMBIO DE GUARDIA"; sub = `El pibe le ganó el lugar a ${ap}, que pasó el año en el banco.`; }
+    else if (e.severeInjury) { head = "PARTE MÉDICO PREOCUPANTE"; sub = `Lesión grave de ${ap}: temporada marcada por la recuperación.`; }
+    else if (e.rating >= 7.8) { head = "TEMPORADA SOÑADA"; sub = `${ap} la rompió en ${c.name}: ${e.gls > 0 ? `${e.gls} goles, ` : ""}rating ${e.rating}.`; }
+    else if (e.warning) { head = "BAJO LA LUPA"; sub = `En ${c.name} pierden la paciencia con ${ap}. La próxima temporada define todo.`; }
+    else { head = "OTRA VUELTA AL SOL"; sub = `Temporada ${e.rating >= 6.5 ? "correcta" : "irregular"} de ${ap} en ${c.name}: ${e.pj} partidos, rating ${e.rating}.`; }
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <button onClick={() => setScreen(postDiario)} className="w-full text-left active:scale-[0.99] transition">
+            <div className="bg-neutral-100 text-black rounded-2xl overflow-hidden shadow-2xl">
+              <div className="flex items-center justify-between px-4 py-2 border-b-4 border-black">
+                <span className="font-black text-lg tracking-tighter">EL DEPORTIVO</span>
+                <span className="text-[10px] uppercase tracking-widest text-neutral-600">Temporada {e.age} años</span>
+              </div>
+              <div className="px-4 py-6">
+                <h1 className="font-black text-4xl leading-[0.95] tracking-tight" style={{ fontFamily: "Georgia, serif" }}>{head}</h1>
+                <p className="text-sm text-neutral-700 mt-3 leading-snug">{sub}</p>
+              </div>
+              <div className="px-4 pb-4 flex gap-3 text-[11px] text-neutral-500 border-t border-neutral-300 pt-2">
+                <span>{e.pj} PJ</span><span>{e.gls} goles</span><span>{e.ast} asist.</span><span>Rating {e.rating}</span><span className="ml-auto font-semibold text-black">Tocá para seguir →</span>
+              </div>
+            </div>
+          </button>
+          <Footer />
+        </div>
+      </div>
+    );
+  }
+
+  // --- DUELO GENERACIONAL ---
+  if (screen === "duelo") {
+    const c = club(state.clubId);
+    const escape = club(state.duelOfferClub);
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <Header />
+          <SeasonSummary />
+          <div className="bg-neutral-950 border border-violet-900 rounded-2xl p-5">
+            <p className="text-[10px] uppercase tracking-widest text-violet-400 mb-1">El fútbol no espera</p>
+            <h2 className="text-xl font-bold text-violet-200">Un pibe viene por tu puesto</h2>
+            <p className="text-sm text-neutral-300 mt-2 mb-4">En {c.name} subieron a un juvenil que la rompe en las prácticas y la prensa ya pide su debut. Tenés {state.age} años y no venís brillando. ¿Qué hacés?</p>
+            <div className="space-y-2">
+              <button className={S.btnPrimary} onClick={() => answerDuel(true)}>
+                Pelear el puesto 🥊
+              </button>
+              <p className="text-[11px] text-neutral-500 text-center">Si le ganás el duelo, el DT te ratifica. Si te pasa por arriba, vas al banco.</p>
+              <button className={`${S.btnGhost} w-full`} onClick={() => answerDuel(false)}>
+                Irte a {escape.name}, que te llama
+              </button>
+            </div>
+          </div>
+          </div>
+          <Footer />
+      </div>
+    );
+  }
+
+  // --- LA VUELTA A CASA: el club que te formó te llama ---
+  if (screen === "vuelta") {
+    const home = club(state.homeOffer);
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <Header />
+          <div className="bg-gradient-to-b from-amber-950/60 to-neutral-950 border border-amber-800 rounded-2xl p-5">
+            <p className="text-[10px] uppercase tracking-widest text-amber-400 mb-1">Llamada especial</p>
+            <h2 className="text-xl font-bold text-amber-200">{home.name} quiere que vuelvas</h2>
+            <p className="text-sm text-neutral-300 mt-2 mb-1">Sos un jugador de renombre y en el club que te formó la hinchada colgó banderas con tu nombre. Te ofrecen menos plata que en Europa, pero te ofrecen otra cosa: ser ídolo.</p>
+            <p className="text-xs text-neutral-500 mb-4">Si volvés, la hinchada te banca para siempre: nunca te van a soltar, sin importar cómo rindas.</p>
+            <div className="space-y-2">
+              <button className={S.btnPrimary} onClick={() => answerHome(true)}>Volver a casa ❤️ ({fmtMoney(Math.round(state.wage * 0.6))}/año)</button>
+              <button className={`${S.btnGhost} w-full`} onClick={() => answerHome(false)}>Todavía no es el momento</button>
+            </div>
+          </div>
+          </div>
+          <Footer />
+      </div>
+    );
+  }
+
+  // --- MERCADO: la primera decisión del fin de temporada ---
+  if (screen === "mercado") {
+    const c = club(state.clubId);
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <Header />
+          <CareerChart />
+          <SeasonSummary />
+          <div className="mb-4"><HistoryTable compact /></div>
+
+          <div className={`rounded-2xl p-5 mb-4 ${released ? "bg-red-950/60 border border-red-800" : "bg-neutral-950"}`}>
+            {released ? (
+              <>
+                <h2 className="text-xl font-bold text-red-300">{c.name} te suelta</h2>
+                <p className="text-sm text-neutral-300 mt-1 mb-4">No rendiste lo que esperaban y no te renuevan. Tenés que aceptar alguna de estas ofertas para no quedarte sin jugar.</p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-xl font-bold">Mercado de pases</h2>
+                <p className="text-sm text-neutral-400 mt-1 mb-4">
+                  {offers.length > 0 ? "¿Seguís donde estás o fichás? Podés negociar cada oferta una vez." : "Esta temporada nadie preguntó por vos."}
+                </p>
+              </>
+            )}
+            {negMsg && <p className={`text-sm mb-3 ${negMsg.ok ? "text-emerald-400" : "text-red-400"}`}>{negMsg.text}</p>}
+            <div className="space-y-3">
+              {offers.map((o, idx) => {
+                const oc = club(o.clubId);
+                return (
+                  <div key={o.clubId} className="bg-neutral-900 rounded-xl p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-bold">{oc.name}</p>
+                        <p className="text-xs text-neutral-500">{oc.league} · Desarrollo {oc.prestige}</p>
+                      </div>
+                      <p className="font-bold text-emerald-400">{fmtMoney(o.wage)}<span className="text-xs text-neutral-500">/año</span></p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="flex-1 bg-white text-black rounded-full py-2 text-sm font-semibold active:scale-95" onClick={() => chooseClub(o)}>Fichar</button>
+                      <button disabled={o.negotiated} className="flex-1 border border-neutral-600 rounded-full py-2 text-sm font-semibold disabled:opacity-30 active:scale-95" onClick={() => negotiate(o, idx)}>Negociar</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {!released && (
+            <button className={S.btnPrimary} onClick={() => chooseClub(null)}>
+              Seguir en {c.name}
+            </button>
+          )}
+          {state.age >= 31 && (
+            <button className="w-full mt-3 text-sm text-neutral-500 underline underline-offset-4 hover:text-white transition"
+              onClick={() => setScreen("fin")}>
+              Colgar los botines ahora
+            </button>
+          )}
+          </div>
+          <Footer />
+      </div>
+    );
+  }
+
+  // --- PRETEMPORADA: la segunda decisión — en qué invertir ---
+  if (screen === "pretemporada") {
+    const canTrainer = state.money >= trainerCost(state);
+    const canFisio = state.money >= fisioCost(state);
+    const canAgent = !state.agent && state.money >= agentCost(state);
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <Header />
+          <CareerChart />
+          <div className="bg-neutral-950 rounded-2xl p-4 mb-4">
+            <h2 className="font-bold mb-1">Pretemporada en {club(state.clubId).name}: ¿en qué invertís?</h2>
+            <p className="text-xs text-neutral-500 mb-3">Lo que pagás afecta la temporada que arranca.</p>
+            {hintTargets.length > 0 && (
+              <div className="bg-neutral-900 rounded-xl p-3 mb-3">
+                <div className="flex justify-between items-center">
+                  <p className="font-semibold text-sm">🗣️ Indirecta (opcional, no gasta tu acción)</p>
+                  {state.hintCooldown > 0
+                    ? <span className="text-xs text-neutral-500">Disponible en {state.hintCooldown} temporada{state.hintCooldown > 1 ? "s" : ""}</span>
+                    : <span className="text-xs text-emerald-400">Lista</span>}
+                </div>
+                {state.hintCooldown === 0 && (
+                  <>
+                    <p className="text-xs text-neutral-500 mt-0.5 mb-2">Elegí un club (o ninguno) y después tu acción del año. ⚠️ = clásico rival.</p>
+                    {pendingHint ? (
+                      <button onClick={() => setPendingHint(null)}
+                        className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 ${RIVALS[state.clubId] === pendingHint ? "bg-red-950 border border-red-700" : "bg-white/10 border border-white/30"}`}>
+                        <span className="text-sm font-semibold">{club(pendingHint).name}{RIVALS[state.clubId] === pendingHint ? " ⚠️" : ""} <span className="text-neutral-400 font-normal">· {club(pendingHint).league}</span></span>
+                        <span className="text-xs text-neutral-400">✕ quitar</span>
+                      </button>
+                    ) : (
+                      <ClubPicker targets={hintTargets} rival={RIVALS[state.clubId]} onPick={setPendingHint} />
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <DecisionCard
+                title="💪 Preparador personal" cost={fmtMoney(trainerCost(state))} disabled={!canTrainer}
+                desc="Crecés bastante más esta temporada."
+                onClick={() => invest({ trainer: true })}
+              />
+              <DecisionCard
+                title="🩺 Cuerpo de fisios" cost={fmtMoney(fisioCost(state))} disabled={!canFisio}
+                desc={`Riesgo de lesión: ${Math.round(injuryRisk(state, false) * 100)}% → ${Math.round(injuryRisk(state, true) * 100)}%${state.injuries > 0 ? ` (llevás ${state.injuries} lesi${state.injuries === 1 ? "ón" : "ones"}: tu cuerpo lo siente)` : ""}${state.age >= 28 ? ". Además frena tu declive físico." : "."}`}
+                onClick={() => invest({ fisio: true })}
+              />
+              {!state.agent && (
+                <DecisionCard
+                  title="🕴️ Agente de élite" cost={fmtMoney(agentCost(state))} disabled={!canAgent}
+                  desc="Para siempre: más ofertas y negociaciones mucho más efectivas."
+                  onClick={() => invest({ agent: true })}
+                />
+              )}
+              <DecisionCard
+                title="🏖️ Pretemporada normal" cost="Gratis" costOk
+                desc="No invertís nada y guardás la plata."
+                onClick={() => invest({})}
+              />
+            </div>
+          </div>
+          </div>
+          <Footer />
+      </div>
+    );
+  }
+
+  if (screen === "fin") {
+    const peak = Math.max(...state.history.map((h) => h.ovr));
+    const totalGls = state.history.reduce((s, h) => s + h.gls, 0);
+    const totalAst = state.history.reduce((s, h) => s + h.ast, 0);
+    const totalPj = state.history.reduce((s, h) => s + h.pj, 0);
+    const bestClub = state.history.reduce((a, b) => (club(a.clubId).prestige > club(b.clubId).prestige ? a : b));
+    const ballons = state.trophies.filter((t) => t.name === "Balón de Oro").length;
+    const leg = LEGENDS[posGroup(state.pos)];
+    const myStat = leg.statOf(state);
+    const cardGradient = peak >= 88 ? "from-yellow-500 via-amber-600 to-yellow-800"
+      : peak >= 78 ? "from-slate-300 via-slate-500 to-slate-700"
+      : peak >= 68 ? "from-amber-700 via-amber-800 to-amber-950"
+      : "from-neutral-600 via-neutral-700 to-neutral-900";
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+
+          {/* ===== TARJETA DE CARRERA (para screenshot y compartir) ===== */}
+          <div className={`rounded-3xl bg-gradient-to-b ${cardGradient} p-1 mb-4 shadow-2xl`}>
+            <div className="rounded-[22px] bg-black/85 p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/50">Carrera finalizada</p>
+                  <h1 className="text-3xl font-black tracking-tight">{state.apellido}</h1>
+                  <p className="text-sm text-white/60">#{state.numero} · {state.pos} · {state.pierna === "Izquierda" ? "Zurdo" : "Diestro"} · 🇦🇷</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-4xl font-black">{peak}</p>
+                  <p className="text-[9px] uppercase tracking-widest text-white/50">OVR pico</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-2 mt-4 text-center">
+                <div><p className="text-lg font-bold">{totalPj}</p><p className="text-[9px] uppercase text-white/50">PJ</p></div>
+                <div><p className="text-lg font-bold">{totalGls}</p><p className="text-[9px] uppercase text-white/50">Goles</p></div>
+                <div><p className="text-lg font-bold">{totalAst}</p><p className="text-[9px] uppercase text-white/50">Asist.</p></div>
+                <div><p className="text-lg font-bold text-emerald-400">{fmtMoney(state.money)}</p><p className="text-[9px] uppercase text-white/50">Fortuna</p></div>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-4">
+                {ballons > 0 && <Chip gold>{"✨".repeat(Math.min(ballons, 3))} {ballons} Balón{ballons > 1 ? "es" : ""} de Oro</Chip>}
+                {state.trophies.some((t) => t.name === "Mundial") && <Chip gold>🏆 Campeón del Mundo</Chip>}
+                {state.trophies.filter((t) => t.name !== "Balón de Oro" && t.name !== "Mundial").length > 0 && (
+                  <Chip>🏆 {state.trophies.filter((t) => t.name !== "Balón de Oro" && t.name !== "Mundial").length} títulos</Chip>
+                )}
+                {state.caps > 0 && <Chip>🇦🇷 {state.caps} PJ selección</Chip>}
+                {state.idolo && state.formative.includes(state.clubId) && <Chip gold>❤️ Ídolo de {club(state.clubId).name}</Chip>}
+              </div>
+              <p className="text-sm text-white/80 italic mt-4 leading-snug">"{legacyVerdict(state, peak)}"</p>
+              <p className="text-[10px] text-white/40 mt-3">Mejor momento: {club(bestClub.clubId).name}, {bestClub.age} años · Retiro a los {state.age}</p>
+            </div>
+          </div>
+
+          {/* ===== Comparación con la leyenda de tu posición ===== */}
+          <div className="bg-neutral-950 rounded-2xl p-5 mb-4">
+            <p className="text-[10px] uppercase tracking-widest text-neutral-500 mb-3 text-center">Tu legado vs {leg.name}</p>
+            <CompareBar label={`OVR máximo (${leg.name}: ${leg.peak})`} mine={peak} pct={Math.round((peak / leg.peak) * 100)} />
+            <CompareBar label={`${leg.statLabel} (${leg.name}: ${leg.statRef})`} mine={myStat} pct={Math.round(Math.min(myStat / leg.statRef, 1) * 100)} />
+            <CompareBar label={`Títulos (${leg.name}: 30+)`} mine={state.trophies.length} pct={Math.round(Math.min(state.trophies.length / 30, 1) * 100)} />
+          </div>
+
+          {state.trophies.length > 0 && (
+            <div className="bg-neutral-950 rounded-2xl p-5 mb-4">
+              <p className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 text-center">Vitrina</p>
+              {state.trophies.map((t, i) => (
+                <p key={i} className="text-sm text-amber-300">🏆 {t.name} <span className="text-neutral-500">· {t.clubId ? club(t.clubId).name : "Selección"} · {t.age} años</span></p>
+              ))}
+            </div>
+          )}
+
+          <HistoryTable />
+          <button className={`${S.btnPrimary} mt-4`} onClick={() => window.location.reload()}>Nueva carrera</button>
+          </div>
+          <Footer />
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// ---------- MICRO-COMPONENTES ----------
+
+function Logo() {
+  return (
+    <div className="flex items-center justify-center gap-2 mb-4">
+      <span className="bg-white text-black rounded-lg w-7 h-7 flex items-center justify-center text-sm font-black">⚽</span>
+      <span className="font-black text-xl tracking-tight">mi carrera</span>
+    </div>
+  );
+}
+
+function Footer() {
+  return (
+    <p className="text-center text-[11px] text-neutral-600 mt-6 mb-2">
+      Ignacio Karvouniaris · Proyecto personal 2026
+    </p>
+  );
+}
+
+function DecisionCard({ title, desc, cost, costOk, disabled, onClick }) {
+  return (
+    <button disabled={disabled} onClick={onClick}
+      className="w-full text-left bg-neutral-900 rounded-xl p-3 transition active:scale-[0.98] hover:bg-neutral-800 disabled:opacity-35 disabled:cursor-not-allowed">
+      <div className="flex justify-between items-center">
+        <p className="font-semibold text-sm">{title}</p>
+        <span className={`text-xs ${costOk ? "text-emerald-400" : "text-amber-400"}`}>{cost}</span>
+      </div>
+      <p className="text-xs text-neutral-500 mt-0.5">{desc}</p>
+    </button>
+  );
+}
+
+function ClubPicker({ targets, rival, onPick }) {
+  const [q, setQ] = useState("");
+  const [lg, setLg] = useState("Todas");
+  const leagues = ["Todas", ...Array.from(new Set(targets.map((c) => c.league)))];
+  const filtered = targets.filter((c) =>
+    (lg === "Todas" || c.league === lg) &&
+    c.name.toLowerCase().includes(q.toLowerCase())
+  );
+  return (
+    <div>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Buscar club…"
+        className="w-full bg-black border border-neutral-700 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-white/50 mb-2"
+      />
+      <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: "none" }}>
+        {leagues.map((l) => (
+          <button key={l} onClick={() => setLg(l)}
+            className={`shrink-0 text-xs font-semibold rounded-full px-3 py-1.5 transition ${lg === l ? "bg-white text-black" : "bg-neutral-800 text-neutral-400"}`}>
+            {l === "Todas" ? "Todas" : l.split(" (")[0]}
+          </button>
+        ))}
+      </div>
+      <div className="max-h-52 overflow-y-auto space-y-1 mt-1">
+        {filtered.length === 0 && <p className="text-xs text-neutral-600 text-center py-3">Sin clubes que coincidan.</p>}
+        {filtered.map((c) => {
+          const isRival = rival === c.id;
+          return (
+            <button key={c.id} onClick={() => onPick(c.id)}
+              className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 transition active:scale-[0.98] ${isRival ? "bg-red-950/40 hover:bg-red-950/70" : "bg-black hover:bg-neutral-800"}`}>
+              <span className={`text-sm font-semibold ${isRival ? "text-red-300" : ""}`}>{c.name}{isRival ? " ⚠️" : ""}</span>
+              <span className="text-[10px] text-neutral-500">{c.league.split(" (")[0]} · req {c.req}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Chip({ children, gold }) {
+  return (
+    <span className={`text-xs font-semibold rounded-full px-2.5 py-1 ${gold ? "bg-amber-400/20 text-amber-300 border border-amber-500/40" : "bg-white/10 text-white/80"}`}>
+      {children}
+    </span>
+  );
+}
+
+function CompareBar({ label, mine, pct }) {
+  return (
+    <div className="mb-3 last:mb-0">
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-neutral-400">{label}</span>
+        <span className="font-semibold">{mine} · {pct}%</span>
+      </div>
+      <div className="h-2 bg-neutral-900 rounded-full overflow-hidden">
+        <div className={`h-full ${pct >= 85 ? "bg-yellow-400" : pct >= 55 ? "bg-emerald-500" : "bg-neutral-600"}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function Progress({ value }) {
+  return (
+    <div className="h-1.5 bg-neutral-900 rounded-full overflow-hidden">
+      <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400" style={{ width: `${value}%` }} />
+    </div>
+  );
+}

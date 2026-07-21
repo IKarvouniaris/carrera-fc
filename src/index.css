@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  margin: 0;
+  min-height: 100%;
+  background: #000;
+}
+
+/* respeta el notch / safe areas en móviles */
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* oculta scrollbars horizontales de las pestañas de liga */
+::-webkit-scrollbar { height: 0; width: 8px; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
