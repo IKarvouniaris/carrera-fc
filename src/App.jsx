@@ -499,6 +499,20 @@ export default function App() {
       newTrophies.push({ name: "Balón de Oro", clubId: null, age: s.age });
       prize += Math.round(s.wage * 0.6);
     }
+
+    // ¿Hubo un logro grande para festejar? Se calcula una sola vez y se pasa a cualquier
+    // camino que siga (mercado, préstamo, retiro, etc.) para que el festejo nunca se pierda.
+    const playerName = s.apellido;
+    let party = null;
+    if (ballon) {
+      party = { title: "BALÓN DE ORO", subtitle: `${playerName} es el mejor jugador del mundo`, emoji: "✨" };
+    } else if (natl?.torneo?.won && natl.torneo.name === "Mundial") {
+      party = { title: "¡CAMPEÓN DEL MUNDO!", subtitle: `${playerName} y la Selección tocan la gloria`, emoji: "🏆" };
+    } else if (natl?.torneo?.won) {
+      party = { title: "¡CAMPEÓN DE AMÉRICA!", subtitle: `${playerName} levanta la Copa con la Selección`, emoji: "🏆" };
+    } else if (season.champion) {
+      party = { title: "¡CAMPEONES!", subtitle: `${club(s.clubId).name} da la vuelta con ${playerName}`, emoji: "🏆" };
+    }
     const seasonWithAge = { ...season, age: s.age };
     const bad = isBadSeason(seasonWithAge);
     // si sos ídolo del club de tus amores, la hinchada no deja que te suelten
@@ -547,20 +561,20 @@ export default function App() {
 
     setLastSeason(entry);
 
-    if (next.age >= RETIRE_AGE) { setState(next); goDiario("fin", "fin"); return; }
+    if (next.age >= RETIRE_AGE) { setState(next); goDiario("fin", "fin", party); return; }
 
     // --- Estás a préstamo: no hay mercado hasta que termine ---
     if (next.parentClubId) {
       next.loanYearsLeft = s.loanYearsLeft - 1;
       setState(next);
-      goDiario(next.loanYearsLeft <= 0 ? "finPrestamo" : "pretemporada", "loanSeason");
+      goDiario(next.loanYearsLeft <= 0 ? "finPrestamo" : "pretemporada", "loanSeason", party);
       return;
     }
 
     // --- Sos joven en un grande y rendiste mal: a préstamo sin vueltas ---
     if (bad && shouldLoan(s, entry)) {
       setState({ ...next, badStreak: 0 });
-      goDiario("prestamo", "prestamo");
+      goDiario("prestamo", "prestamo", party);
       return;
     }
 
@@ -572,7 +586,7 @@ export default function App() {
       setReleased(true);
       setOffers(generateOffers(withBlock, season.rating, true));
       setNegMsg(null);
-      goDiario("mercado", "released");
+      goDiario("mercado", "released", party);
       return;
     }
 
@@ -583,7 +597,7 @@ export default function App() {
         .sort((a, b) => b.prestige - a.prestige)[0];
       if (escape) {
         setState({ ...next, duelPending: true, duelOfferClub: escape.id });
-        goDiario("duelo", "duelo");
+        goDiario("duelo", "duelo", party);
         return;
       }
     }
@@ -594,7 +608,7 @@ export default function App() {
         .sort((a, b) => b.prestige - a.prestige)[0];
       if (home && Math.random() < 0.5) {
         setState({ ...next, homeOffer: home.id });
-        goDiario("vuelta", "vuelta");
+        goDiario("vuelta", "vuelta", party);
         return;
       }
     }
@@ -603,18 +617,6 @@ export default function App() {
     setReleased(false);
     setOffers(generateOffers(next, season.rating, false));
     setNegMsg(null);
-
-    // ¿Hubo un logro grande para festejar? Prioridad: Balón de Oro > Mundial > Copa América > título de liga
-    let party = null;
-    if (ballon) {
-      party = { title: "BALÓN DE ORO", subtitle: `${next.apellido} es el mejor jugador del mundo`, emoji: "✨" };
-    } else if (natl?.torneo?.won && natl.torneo.name === "Mundial") {
-      party = { title: "¡CAMPEÓN DEL MUNDO!", subtitle: `${next.apellido} y la Selección tocan la gloria`, emoji: "🏆" };
-    } else if (natl?.torneo?.won) {
-      party = { title: "¡CAMPEÓN DE AMÉRICA!", subtitle: `${next.apellido} levanta la Copa con la Selección`, emoji: "🏆" };
-    } else if (season.champion) {
-      party = { title: "¡CAMPEONES!", subtitle: `${club(s.clubId).name} da la vuelta con ${next.apellido}`, emoji: "🏆" };
-    }
     goDiario("mercado", "normal", party);
   }
 
@@ -821,7 +823,10 @@ export default function App() {
       </div>
       <div className="flex-1 min-w-0">
         <span className="bg-emerald-900 text-emerald-200 text-xs font-semibold rounded-md px-2 py-0.5">#{state.numero} {state.pos}</span>
-        <p className="font-bold text-lg truncate mt-1">{state.clubId ? club(state.clubId).name : "Libre"}</p>
+        <p className="font-bold text-lg truncate mt-1 flex items-center gap-1.5">
+          {state.clubId && <ClubLogo id={state.clubId} size={20} />}
+          <span className="truncate">{state.clubId ? club(state.clubId).name : "Libre"}</span>
+        </p>
         <p className="text-xs text-neutral-500">
           {state.parentClubId ? `A préstamo de ${club(state.parentClubId).name}` : state.clubId ? club(state.clubId).league : "Sin club"}
         </p>
@@ -929,20 +934,22 @@ export default function App() {
 
   const HistoryTable = ({ compact }) => (
     <div className="bg-neutral-950 rounded-2xl p-4">
-      <div className="grid grid-cols-6 text-[10px] uppercase tracking-wider text-neutral-500 pb-2 border-b border-neutral-800">
-        <span>Edad</span><span className="col-span-2">Club</span><span className="text-right">OVR</span><span className="text-right">PJ</span><span className="text-right">GLS</span>
+      <div className="grid grid-cols-7 text-[10px] uppercase tracking-wider text-neutral-500 pb-2 border-b border-neutral-800">
+        <span>Edad</span><span className="col-span-2">Club</span><span className="text-right">OVR</span><span className="text-right">PJ</span><span className="text-right">G</span><span className="text-right">A</span>
       </div>
       {(compact ? state.history.slice(-6) : state.history).map((h, i) => (
-        <div key={i} className="grid grid-cols-6 text-sm py-1.5 border-b border-neutral-900 last:border-0">
+        <div key={i} className="grid grid-cols-7 text-sm py-1.5 border-b border-neutral-900 last:border-0 items-center">
           <span className="text-neutral-400">{h.age}</span>
-          <span className="col-span-2 truncate">
-            {club(h.clubId).name}
-            {h.onLoan && <span className="text-sky-400 text-[10px]"> (prést.)</span>}
-            {h.champion && <span className="text-amber-400"> 🏆</span>}
+          <span className="col-span-2 flex items-center gap-1.5 min-w-0">
+            <ClubLogo id={h.clubId} size={16} />
+            <span className="truncate">{club(h.clubId).name}</span>
+            {h.onLoan && <span className="text-sky-400 text-[10px] shrink-0">(P)</span>}
+            {h.champion && <span className="text-amber-400 shrink-0">🏆</span>}
           </span>
           <span className="text-right font-semibold">{h.ovr}</span>
           <span className="text-right text-neutral-400">{h.pj}</span>
           <span className="text-right text-neutral-400">{h.gls}</span>
+          <span className="text-right text-neutral-400">{h.ast}</span>
         </div>
       ))}
     </div>
@@ -965,6 +972,7 @@ export default function App() {
                   <button key={id} onClick={() => signCantera(id)}
                     className="bg-neutral-900 rounded-xl p-3 text-center hover:bg-neutral-800 transition active:scale-95">
                     <p className="text-[10px] text-neutral-500 mb-1">Fichar por</p>
+                    <div className="flex justify-center mb-1"><ClubLogo id={id} size={32} /></div>
                     <p className="font-bold text-sm leading-tight">{c.name}</p>
                     <p className="text-[10px] text-neutral-500 mt-2">{c.league}</p>
                     <p className="text-[10px] text-emerald-400 mt-1">Desarrollo {c.prestige}</p>
@@ -997,11 +1005,14 @@ export default function App() {
                 <button key={o.id} onClick={() => chooseLoan(o)}
                   className="w-full text-left bg-neutral-900 rounded-xl p-4 hover:bg-neutral-800 transition active:scale-[0.98]">
                   <div className="flex justify-between items-center">
-                    <div>
-                      <p className="font-bold">{o.name}</p>
-                      <p className="text-xs text-neutral-500">{o.league} · Desarrollo {o.prestige}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <ClubLogo id={o.id} size={28} />
+                      <div className="min-w-0">
+                        <p className="font-bold truncate">{o.name}</p>
+                        <p className="text-xs text-neutral-500 truncate">{o.league} · Desarrollo {o.prestige}</p>
+                      </div>
                     </div>
-                    <span className="text-xs text-sky-300">Vas a jugar seguro</span>
+                    <span className="text-xs text-sky-300 shrink-0 ml-2">Vas a jugar seguro</span>
                   </div>
                 </button>
               ))}
@@ -1200,11 +1211,14 @@ export default function App() {
                 return (
                   <div key={o.clubId} className="bg-neutral-900 rounded-xl p-4">
                     <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <p className="font-bold">{oc.name}</p>
-                        <p className="text-xs text-neutral-500">{oc.league} · Desarrollo {oc.prestige}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <ClubLogo id={o.clubId} size={32} />
+                        <div className="min-w-0">
+                          <p className="font-bold truncate">{oc.name}</p>
+                          <p className="text-xs text-neutral-500 truncate">{oc.league} · Desarrollo {oc.prestige}</p>
+                        </div>
                       </div>
-                      <p className="font-bold text-emerald-400">{fmtMoney(o.wage)}<span className="text-xs text-neutral-500">/año</span></p>
+                      <p className="font-bold text-emerald-400 shrink-0 ml-2">{fmtMoney(o.wage)}<span className="text-xs text-neutral-500">/año</span></p>
                     </div>
                     <div className="flex gap-2">
                       <button className="flex-1 bg-white text-black rounded-full py-2 text-sm font-semibold active:scale-95" onClick={() => chooseClub(o)}>Fichar</button>
@@ -1350,7 +1364,10 @@ export default function App() {
                 {state.idolo && state.formative.includes(state.clubId) && <Chip gold>❤️ Ídolo de {club(state.clubId).name}</Chip>}
               </div>
               <p className="text-sm text-white/80 italic mt-4 leading-snug">"{legacyVerdict(state, peak)}"</p>
-              <p className="text-[10px] text-white/40 mt-3">Mejor momento: {club(bestClub.clubId).name}, {bestClub.age} años · Retiro a los {state.age}</p>
+              <p className="text-[10px] text-white/40 mt-3 flex items-center gap-1.5">
+                <ClubLogo id={bestClub.clubId} size={14} />
+                Mejor momento: {club(bestClub.clubId).name}, {bestClub.age} años · Retiro a los {state.age}
+              </p>
             </div>
           </div>
 
@@ -1383,6 +1400,60 @@ export default function App() {
 }
 
 // ---------- MICRO-COMPONENTES ----------
+
+// Colores de escudo para clubes conocidos; el resto se genera del id (consistente).
+const CLUB_COLORS = {
+  river: ["#ffffff", "#e30613"], boca: ["#0a3d91", "#f9d616"], racing: ["#6cb7e6", "#ffffff"],
+  independiente: ["#e30613", "#ffffff"], sanlo: ["#c8102e", "#00287d"], estudiantes: ["#e2001a", "#ffffff"],
+  velez: ["#ffffff", "#00308f"], huracan: ["#ffffff", "#e2001a"], lanus: ["#7a002a", "#ffffff"],
+  newells: ["#e2001a", "#000000"], central: ["#0e4d92", "#f9d616"], talleres: ["#0a3d91", "#ffffff"],
+  boca2: ["#0a3d91", "#f9d616"],
+  madrid: ["#ffffff", "#febe10"], barcelona: ["#a50044", "#004d98"], atletico: ["#cb3524", "#ffffff"],
+  sevilla: ["#ffffff", "#d81920"], betis: ["#00954c", "#ffffff"], valencia: ["#ffffff", "#f18e00"],
+  athletic: ["#ee2523", "#ffffff"], realsociedad: ["#0067b1", "#ffffff"], villarreal: ["#ffe667", "#005187"],
+  bayern: ["#dc052d", "#ffffff"], dortmund: ["#fde100", "#000000"], leverkusen: ["#e32219", "#000000"],
+  leipzig: ["#dd0741", "#001f47"], stuttgart: ["#ffffff", "#e30613"], frankfurt: ["#e1000f", "#000000"],
+  inter: ["#010e80", "#000000"], milan: ["#fb090b", "#000000"], juventus: ["#000000", "#ffffff"],
+  napoli: ["#12a0d7", "#ffffff"], roma: ["#8e1111", "#f0bc42"], lazio: ["#87d8f7", "#ffffff"], torino: ["#8a1538", "#ffffff"],
+  mancity: ["#6cabdd", "#ffffff"], arsenal: ["#ef0107", "#ffffff"], liverpool: ["#c8102e", "#ffffff"],
+  chelsea: ["#034694", "#ffffff"], mancity_utd: ["#da291c", "#ffffff"], tottenham: ["#ffffff", "#132257"],
+  newcastle: ["#241f20", "#ffffff"], villa: ["#95bfe5", "#670e36"], everton: ["#003399", "#ffffff"],
+  nacional: ["#0a7d2c", "#ffffff"], millonarios: ["#004b9b", "#ffffff"], america_cali: ["#e2001a", "#ffffff"],
+  junior: ["#e2001a", "#ffffff"], cali: ["#0a7d2c", "#ffffff"], medellin: ["#e2001a", "#00287d"],
+  leeds: ["#ffffff", "#1d428a"], burnley: ["#6c1d45", "#87d8f7"], sunderland: ["#eb172b", "#ffffff"],
+};
+
+function clubColors(id) {
+  if (CLUB_COLORS[id]) return CLUB_COLORS[id];
+  // color determinístico a partir del id para los que no están en la lista
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  const hue = Math.abs(hash) % 360;
+  return [`hsl(${hue}, 55%, 42%)`, `hsl(${(hue + 40) % 360}, 60%, 75%)`];
+}
+
+function clubInitials(name) {
+  const clean = name.replace(/[.'']/g, "");
+  const words = clean.split(" ").filter((w) => w.length > 1 && !["de", "del", "la"].includes(w.toLowerCase()));
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return clean.slice(0, 3).toUpperCase();
+}
+
+function ClubLogo({ id, size = 20 }) {
+  if (!id) return null;
+  const c = CLUBS.find((x) => x.id === id);
+  if (!c) return null;
+  const [bg, fg] = clubColors(id);
+  const initials = clubInitials(c.name);
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" className="shrink-0" aria-hidden="true">
+      {/* escudo */}
+      <path d="M20 2 L36 7 V20 C36 30 28 36 20 38 C12 36 4 30 4 20 V7 Z" fill={bg} stroke="rgba(0,0,0,0.25)" strokeWidth="1" />
+      <path d="M20 2 L36 7 V20 C36 30 28 36 20 38 C12 36 4 30 4 20 V7 Z" fill="none" stroke={fg} strokeWidth="1.5" opacity="0.6" />
+      <text x="20" y="24" textAnchor="middle" fontSize="13" fontWeight="800" fill={fg} fontFamily="system-ui, sans-serif">{initials}</text>
+    </svg>
+  );
+}
 
 function Logo() {
   return (
