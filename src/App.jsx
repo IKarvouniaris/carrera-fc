@@ -219,12 +219,32 @@ function savePref(key, value) {
   try { localStorage.setItem("carrerarda_" + key, JSON.stringify(value)); } catch (e) {}
 }
 
-// Nombre de liga compacto para pantallas chicas: "Liga Profesional (ARG)" -> "ARG · Liga Prof."
+// Nombre de liga compacto para pantallas chicas: "Liga Profesional (ARG)" -> "ARG · LPF"
 function leagueShort(league) {
   const m = league.match(/^(.*?)\s*\(([^)]+)\)$/);
   if (!m) return league;
-  const name = m[1].replace("Primera Nacional", "Primera Nac.").replace("Liga Profesional", "Liga Prof.").replace("Premier League", "Premier").replace("Championship", "Champ.").replace("Primera A", "Primera A");
+  const name = m[1].replace("Primera Nacional", "Primera Nac.").replace("Liga Profesional", "LPF").replace("Premier League", "Premier").replace("Championship", "Champ.").replace("Primera A", "Primera A");
   return `${m[2]} · ${name}`;
+}
+
+// Partidos oficiales de liga por país (aprox. reales). El resto de competiciones se suman aparte.
+const LEAGUE_MATCHES = {
+  ARG: 30, ESP: 38, GER: 34, ITA: 38, ENG: 38, COL: 32,
+};
+// Copa nacional de cada país (nombre real).
+const NATIONAL_CUP = {
+  ARG: "Copa Argentina", ESP: "Copa del Rey", GER: "DFB-Pokal",
+  ITA: "Coppa Italia", ENG: "FA Cup", COL: "Copa Colombia",
+};
+// Torneo internacional según la confederación del país.
+const INTL_CUP = {
+  ARG: "Copa Libertadores", COL: "Copa Libertadores",
+  ESP: "Champions League", GER: "Champions League", ITA: "Champions League", ENG: "Champions League",
+};
+// Devuelve el código de país (ARG, ESP…) a partir del nombre de liga.
+function leagueCountry(league) {
+  const m = league.match(/\(([^)]+)\)$/);
+  return m ? m[1] : "ARG";
 }
 const club = (id) => CLUBS.find((c) => c.id === id);
 
@@ -385,7 +405,26 @@ function playSeason(state) {
   }
   const injured = Math.random() < injuryRisk(state, state.fisio);
   const severeInjury = injured && Math.random() < 0.25; // 1 de 4 lesiones es grave
-  const pj = Math.round(clamp(fit * rf(0.75, 1.1) * (injured ? rf(0.3, 0.55) : 1), 0.1, 1) * 38);
+  // partidos de LIGA según el país (aprox. real): ARG 30, ESP/ITA/ENG 38, GER 34, COL 32
+  const leagueGames = LEAGUE_MATCHES[leagueCountry(c.league)] || 34;
+  const ligaPj = Math.round(clamp(fit * rf(0.75, 1.1) * (injured ? rf(0.3, 0.55) : 1), 0.1, 1) * leagueGames);
+
+  // ===== COPAS =====
+  const country = leagueCountry(c.league);
+  const playShare = leagueGames > 0 ? ligaPj / leagueGames : 0; // qué tan titular sos (0-1)
+  // Copa nacional: la juegan todos. Cuántos partidos jugás depende de qué tan lejos llega tu club.
+  const nationalCupName = NATIONAL_CUP[country];
+  const cupRun = clamp(0.2 + (c.prestige - 45) / 90 + rf(-0.15, 0.2), 0.1, 1); // qué tan lejos llega el club
+  const cupPj = Math.round(cupRun * 7 * playShare); // hasta ~7 partidos si llega a la final
+  const wonNationalCup = Math.random() < clamp((c.prestige - 55) / 120 + 0.06, 0.02, 0.28) && playShare > 0.4;
+  // Torneo internacional (Libertadores/Champions): solo si tu club es lo bastante grande.
+  const intlCupName = INTL_CUP[country];
+  const inIntlCup = c.prestige >= 68; // clasificaste el año pasado
+  const intlRun = inIntlCup ? clamp(0.3 + (c.prestige - 68) / 60 + rf(-0.2, 0.25), 0.1, 1) : 0;
+  const intlPj = Math.round(intlRun * 13 * playShare); // liguilla + eliminatorias, hasta ~13
+  const wonIntlCup = inIntlCup && Math.random() < clamp((c.prestige - 80) / 200 + 0.02, 0.01, 0.14) && playShare > 0.5;
+
+  const pj = ligaPj + cupPj + intlPj;
   const isAtk = ["DC", "ED", "EI", "MCO"].includes(state.pos);
   const isMid = ["MC", "MCD", "MD", "MI"].includes(state.pos);
   const gls = state.pos === "POR" ? 0 : Math.round(pj * (isAtk ? rf(0.25, 0.65) : isMid ? rf(0.08, 0.2) : rf(0.01, 0.06)) * (ovr / 80));
@@ -395,14 +434,15 @@ function playSeason(state) {
   const g = posGroup(state.pos);
   // el delantero es volátil: si no hace goles, rinde mal aunque juegue bien
   let rating;
+  const starter = playShare > 0.6; // titular si jugaste 60%+ de la liga
   if (g === "atk") {
     const golesPorPartido = pj > 0 ? gls / pj : 0;
-    rating = clamp(rf(4.9, 6.6) + golesPorPartido * 2.2 + (ovr - effReq) / 35 + (pj > 25 ? 0.2 : -0.3) - (state.angry ? 0.5 : 0), 4.5, 9.8);
+    rating = clamp(rf(4.9, 6.6) + golesPorPartido * 2.2 + (ovr - effReq) / 35 + (starter ? 0.2 : -0.3) - (state.angry ? 0.5 : 0), 4.5, 9.8);
   } else if (g === "gk") {
     // el arquero es parejo: pocas temporadas brillantes, pocas desastrosas
-    rating = clamp(rf(5.8, 7.1) + (ovr - effReq) / 35 + (pj > 25 ? 0.2 : -0.4) - (state.angry ? 0.4 : 0), 4.8, 9.2);
+    rating = clamp(rf(5.8, 7.1) + (ovr - effReq) / 35 + (starter ? 0.2 : -0.4) - (state.angry ? 0.4 : 0), 4.8, 9.2);
   } else {
-    rating = clamp(rf(5.4, 7.4) + (ovr - effReq) / 30 + (pj > 25 ? 0.3 : -0.3) - (state.angry ? 0.5 : 0), 4.5, 9.8);
+    rating = clamp(rf(5.4, 7.4) + (ovr - effReq) / 30 + (starter ? 0.3 : -0.3) - (state.angry ? 0.5 : 0), 4.5, 9.8);
   }
 
   // ¿Tu club sale campeón? Se compara con los demás de SU liga (no de todo el mundo)
@@ -428,7 +468,8 @@ function playSeason(state) {
   if (injured) growth -= severeInjury ? 3 : 1; // una lesión grave te marca el físico
   const newOvr = clamp(Math.round((ovr + growth) * 10) / 10, 40, 99);
 
-  return { pj, gls, ast, cleanSheets, rating: Math.round(rating * 10) / 10, newOvr, injured, severeInjury, champion, duelResult };
+  return { pj, ligaPj, cupPj, intlPj, gls, ast, cleanSheets, rating: Math.round(rating * 10) / 10, newOvr, injured, severeInjury, champion,
+    nationalCupName, wonNationalCup, intlCupName, inIntlCup, wonIntlCup, duelResult };
 }
 
 // Selección nacional: te convocan si tu nivel da (más fácil con buen rating).
@@ -577,6 +618,14 @@ export default function App() {
       newTrophies.push({ name: natl.torneo.name, clubId: null, age: s.age });
       prize += Math.round(s.wage * 0.4);
     }
+    if (season.wonNationalCup) {
+      newTrophies.push({ name: season.nationalCupName, clubId: s.clubId, age: s.age });
+      prize += Math.round(s.wage * 0.35);
+    }
+    if (season.wonIntlCup) {
+      newTrophies.push({ name: season.intlCupName, clubId: s.clubId, age: s.age });
+      prize += Math.round(s.wage * 0.8); // el torneo internacional paga como ninguno
+    }
     // Balón de Oro: solo para los mejores del mundo en un año brillante
     const ballon = s.ovr >= 88 && season.rating >= 7.6 && Math.random() < clamp((s.ovr - 86) / 18, 0.05, 0.7);
     if (ballon) {
@@ -590,6 +639,8 @@ export default function App() {
     let party = null;
     if (ballon) {
       party = { title: "BALÓN DE ORO", subtitle: `${playerName} es el mejor jugador del mundo`, emoji: "✨" };
+    } else if (season.wonIntlCup) {
+      party = { title: `¡${season.intlCupName.toUpperCase()}!`, subtitle: `${club(s.clubId).name} campeón de ${season.intlCupName} con ${playerName}`, emoji: "🌎" };
     } else if (natl?.torneo?.won && natl.torneo.name === "Mundial") {
       party = { title: "¡CAMPEÓN DEL MUNDO!", subtitle: `${playerName} y la Selección tocan la gloria`, emoji: "🏆" };
     } else if (natl?.torneo?.won) {
@@ -604,14 +655,16 @@ export default function App() {
     const releasedNow = !s.parentClubId && !isHome && isReleased(seasonWithAge, s.badStreak);
     const entry = {
       age: s.age, clubId: s.clubId, ovr: Math.round(season.newOvr),
-      pj: season.pj, gls: season.gls, ast: season.ast, cleanSheets: season.cleanSheets, rating: season.rating, injured: season.injured,
-      role: season.pj >= 28 ? "Titular" : season.pj >= 14 ? "Rotación" : "Suplente",
+      pj: season.pj, ligaPj: season.ligaPj, cupPj: season.cupPj, intlPj: season.intlPj, gls: season.gls, ast: season.ast, cleanSheets: season.cleanSheets, rating: season.rating, injured: season.injured,
+      role: season.ligaPj >= 24 ? "Titular" : season.ligaPj >= 12 ? "Rotación" : "Suplente",
       duelResult: season.duelResult,
       champion: season.champion, natl, wasAngry: s.angry, ballon,
       onLoan: !!s.parentClubId, parentClubId: s.parentClubId,
       severeInjury: season.severeInjury,
       warning: bad && !releasedNow && !s.parentClubId && !isHome, // te bancan, pero avisan
       hintReaction: s.hintReaction || null, // reacción del club a la indirecta que tiraste
+      wonNationalCup: season.wonNationalCup, nationalCupName: season.nationalCupName,
+      wonIntlCup: season.wonIntlCup, intlCupName: season.intlCupName,
     };
     // los clubes resentidos se van olvidando de a poco
     const cooledBlocked = {};
@@ -1011,6 +1064,8 @@ export default function App() {
     // avisos como lista para poder animarlos escalonados
     const notices = [];
     if (lastSeason.champion) notices.push({ c: "text-amber-300", t: `🏆 ¡${club(lastSeason.clubId).name} campeón de la ${club(lastSeason.clubId).league}! Cobraste un premio.` });
+    if (lastSeason.wonIntlCup) notices.push({ c: "text-amber-300 font-semibold", t: `🌎 ¡Campeón de la ${lastSeason.intlCupName}! El título más grande a nivel clubes.` });
+    if (lastSeason.wonNationalCup) notices.push({ c: "text-amber-300", t: `🏆 ¡Ganaste la ${lastSeason.nationalCupName}! Otra vuelta para las vitrinas.` });
     if (lastSeason.natl) notices.push({ c: "text-sky-300", t: `🇦🇷 Convocado a la selección: ${lastSeason.natl.caps} PJ${lastSeason.natl.goals > 0 ? `, ${lastSeason.natl.goals} goles` : ""}.` });
     if (lastSeason.natl?.torneo) notices.push({
       c: lastSeason.natl.torneo.won ? "text-amber-300" : "text-neutral-400",
@@ -1057,6 +1112,11 @@ export default function App() {
               <p className="text-sm mt-1">
                 <span className={`mr-1.5 text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${lastSeason.role === "Titular" ? "bg-emerald-900 text-emerald-300" : lastSeason.role === "Rotación" ? "bg-amber-900 text-amber-300" : "bg-neutral-800 text-neutral-400"}`}>{lastSeason.role}</span>
                 {lastSeason.pj} PJ · {state.pos === "POR" ? `${lastSeason.cleanSheets || 0} vallas invictas` : `${lastSeason.gls} goles · ${lastSeason.ast} asist.`}</p>
+              {lastSeason.pj > 0 && (lastSeason.cupPj > 0 || lastSeason.intlPj > 0) && (
+                <p className="text-[10px] text-neutral-500 mt-1">
+                  Liga {lastSeason.ligaPj}{lastSeason.cupPj > 0 ? ` · Copa ${lastSeason.cupPj}` : ""}{lastSeason.intlPj > 0 ? ` · Internacional ${lastSeason.intlPj}` : ""}
+                </p>
+              )}
             </div>
             <div className={`text-2xl font-bold ${lastSeason.rating >= 7 ? "text-emerald-400" : lastSeason.rating < 5.8 ? "text-red-400" : "text-neutral-300"}`}>
               {lastSeason.rating}
@@ -1230,7 +1290,9 @@ export default function App() {
     else if (e.ballon) { head = "EL MEJOR DEL MUNDO"; sub = `${ap} gana el Balón de Oro tras una temporada inolvidable en ${c.name}.`; }
     else if (e.natl?.torneo?.won && e.natl.torneo.name === "Mundial") { head = "CAMPEONES DEL MUNDO"; sub = `${ap} y la Selección tocan el cielo con las manos.`; }
     else if (e.natl?.torneo?.won) { head = "¡CAMPEÓN DE AMÉRICA!"; sub = `${ap} levanta la Copa con la Selección.`; }
+    else if (e.wonIntlCup) { head = `¡GLORIA CONTINENTAL!`; sub = `${c.name} conquista la ${e.intlCupName} y ${ap} lo grita a lo loco.`; }
     else if (e.champion) { head = `¡${c.name.toUpperCase()} CAMPEÓN!`; sub = `${ap} clave en la vuelta olímpica: ${e.gls > 0 ? `${e.gls} goles en ` : ""}${e.pj} partidos.`; }
+    else if (e.wonNationalCup) { head = `¡COPERO!`; sub = `${c.name} se queda con la ${e.nationalCupName} de la mano de ${ap}.`; }
     else if (diarioKind === "prestamo") { head = "A FOGUEARSE"; sub = `${c.name} manda a ${ap} (${e.age}) a préstamo en busca de minutos.`; }
     else if (diarioKind === "released") { head = "FIN DE CICLO"; sub = `${c.name} decide no contar más con ${ap}. El mercado espera.`; }
     else if (diarioKind === "duelo") { head = "LA JOYA QUE PIDE PISTA"; sub = `Un juvenil presiona en ${c.name} y el puesto de ${ap} tambalea.`; }
@@ -1551,9 +1613,15 @@ export default function App() {
           {state.trophies.length > 0 && (
             <div className="bg-neutral-950 rounded-2xl p-5 mb-4">
               <p className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2 text-center">Vitrina</p>
-              {state.trophies.map((t, i) => (
-                <p key={i} className="text-sm text-amber-300">🏆 {t.name} <span className="text-neutral-500">· {t.clubId ? club(t.clubId).name : "Selección"} · {t.age} años</span></p>
-              ))}
+              {state.trophies.map((t, i) => {
+                const icon = t.name === "Balón de Oro" ? "✨"
+                  : t.name === "Champions League" || t.name === "Copa Libertadores" ? "🌎"
+                  : t.name === "Mundial" || t.name === "Copa América" ? "🌍" : "🏆";
+                const label = t.name.includes("(") ? t.name.replace(/\s*\(([^)]+)\)/, " $1") : t.name;
+                return (
+                  <p key={i} className="text-sm text-amber-300">{icon} {label} <span className="text-neutral-500">· {t.clubId ? club(t.clubId).name : "Selección"} · {t.age} años</span></p>
+                );
+              })}
             </div>
           )}
 
