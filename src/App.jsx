@@ -206,6 +206,26 @@ const RETIRE_AGE = 38;
 
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 const rf = (a, b) => a + Math.random() * (b - a);
+
+// Preferencias del jugador guardadas entre carreras (nombre, número, posición).
+// Usa localStorage; si no está disponible, degrada silenciosamente al valor por defecto.
+function loadPref(key, fallback) {
+  try {
+    const v = localStorage.getItem("carrerarda_" + key);
+    return v === null ? fallback : JSON.parse(v);
+  } catch (e) { return fallback; }
+}
+function savePref(key, value) {
+  try { localStorage.setItem("carrerarda_" + key, JSON.stringify(value)); } catch (e) {}
+}
+
+// Nombre de liga compacto para pantallas chicas: "Liga Profesional (ARG)" -> "ARG · Liga Prof."
+function leagueShort(league) {
+  const m = league.match(/^(.*?)\s*\(([^)]+)\)$/);
+  if (!m) return league;
+  const name = m[1].replace("Primera Nacional", "Primera Nac.").replace("Liga Profesional", "Liga Prof.").replace("Premier League", "Premier").replace("Championship", "Champ.").replace("Primera A", "Primera A");
+  return `${m[2]} · ${name}`;
+}
 const club = (id) => CLUBS.find((c) => c.id === id);
 
 // Cada rol envejece distinto: el delantero explota joven y decae rápido (vive de piernas),
@@ -317,7 +337,7 @@ const LEGENDS = {
   atk: { name: "Messi", peak: 95, statLabel: "goles", statOf: (s) => s.history.reduce((a, h) => a + h.gls, 0), statRef: 650 },
   mid: { name: "Iniesta", peak: 92, statLabel: "asistencias", statOf: (s) => s.history.reduce((a, h) => a + h.ast, 0), statRef: 280 },
   def: { name: "Maldini", peak: 94, statLabel: "partidos", statOf: (s) => s.history.reduce((a, h) => a + h.pj, 0), statRef: 750 },
-  gk: { name: "Buffon", peak: 93, statLabel: "partidos", statOf: (s) => s.history.reduce((a, h) => a + h.pj, 0), statRef: 800 },
+  gk: { name: "Neuer", peak: 93, statLabel: "vallas invictas", statOf: (s) => s.history.reduce((a, h) => a + (h.cleanSheets || 0), 0), statRef: 250 },
 };
 
 function legacyVerdict(state, peak) {
@@ -370,6 +390,8 @@ function playSeason(state) {
   const isMid = ["MC", "MCD", "MD", "MI"].includes(state.pos);
   const gls = state.pos === "POR" ? 0 : Math.round(pj * (isAtk ? rf(0.25, 0.65) : isMid ? rf(0.08, 0.2) : rf(0.01, 0.06)) * (ovr / 80));
   const ast = state.pos === "POR" ? 0 : Math.round(pj * (isAtk ? rf(0.1, 0.3) : isMid ? rf(0.15, 0.35) : rf(0.02, 0.1)) * (ovr / 80));
+  // vallas invictas: solo arqueros. Un arquero mejor mantiene el cero más seguido.
+  const cleanSheets = state.pos === "POR" ? Math.round(pj * clamp((ovr - 45) / 90, 0.05, 0.5)) : 0;
   const g = posGroup(state.pos);
   // el delantero es volátil: si no hace goles, rinde mal aunque juegue bien
   let rating;
@@ -406,7 +428,7 @@ function playSeason(state) {
   if (injured) growth -= severeInjury ? 3 : 1; // una lesión grave te marca el físico
   const newOvr = clamp(Math.round((ovr + growth) * 10) / 10, 40, 99);
 
-  return { pj, gls, ast, rating: Math.round(rating * 10) / 10, newOvr, injured, severeInjury, champion, duelResult };
+  return { pj, gls, ast, cleanSheets, rating: Math.round(rating * 10) / 10, newOvr, injured, severeInjury, champion, duelResult };
 }
 
 // Selección nacional: te convocan si tu nivel da (más fácil con buen rating).
@@ -437,11 +459,15 @@ function generateOffers(state, seasonRating, forced) {
     if (!forced && c.tier < current.tier) return;
     if (state.ovr < c.req - (forced ? 10 : 3)) return;
     const hinted = state.hintedClub === c.id;
+    const reaction = state.hintReaction?.clubId === c.id ? state.hintReaction.type : null;
     // ¿Este club necesita un jugador de tu posición este mercado? A veces simplemente no.
     // La indirecta ayuda a que te tengan en cuenta, pero no crea la necesidad.
     const needsYourPos = Math.random() < (hinted ? 0.65 : 0.45);
     let chance = 0.1 + (state.ovr - c.req) * 0.02 + (seasonRating - 6.5) * 0.15;
-    if (hinted) chance += 0.45;
+    // el peso de la indirecta depende de cómo reaccionó el club a tu nivel
+    if (reaction === "interesado") chance += 0.5;
+    else if (reaction === "tibio") chance += 0.18;
+    else if (reaction === "desmentido") chance -= 0.3; // salieron a decir que no te quieren
     if (state.agent) chance += 0.12;
     if (forced && c.tier <= current.tier) chance += 0.3; // los chicos te ven accesible
     if (!needsYourPos && !forced) chance *= 0.15; // no buscan tu puesto: casi imposible
@@ -464,10 +490,10 @@ function generateOffers(state, seasonRating, forced) {
 
 export default function App() {
   const [screen, setScreen] = useState("identidad"); // identidad | posicion | cantera | mercado | pretemporada | fin
-  const [apellido, setApellido] = useState("");
-  const [numero, setNumero] = useState("10");
-  const [pierna, setPierna] = useState("Derecha");
-  const [pos, setPos] = useState(null);
+  const [apellido, setApellido] = useState(() => loadPref("apellido", ""));
+  const [numero, setNumero] = useState(() => loadPref("numero", "10"));
+  const [pierna, setPierna] = useState(() => loadPref("pierna", "Derecha"));
+  const [pos, setPos] = useState(() => loadPref("pos", null));
 
   const [state, setState] = useState(null);
   const [lastSeason, setLastSeason] = useState(null);
@@ -509,6 +535,11 @@ export default function App() {
 
   function confirmIdentity() {
     if (!pos) return;
+    // recordar identidad para la próxima carrera
+    savePref("apellido", apellido.trim().toUpperCase() || "JUGADOR");
+    savePref("numero", numero);
+    savePref("pierna", pierna);
+    savePref("pos", pos);
     setState({
       apellido: apellido.trim().toUpperCase() || "JUGADOR",
       numero, pierna, pos,
@@ -573,13 +604,14 @@ export default function App() {
     const releasedNow = !s.parentClubId && !isHome && isReleased(seasonWithAge, s.badStreak);
     const entry = {
       age: s.age, clubId: s.clubId, ovr: Math.round(season.newOvr),
-      pj: season.pj, gls: season.gls, ast: season.ast, rating: season.rating, injured: season.injured,
+      pj: season.pj, gls: season.gls, ast: season.ast, cleanSheets: season.cleanSheets, rating: season.rating, injured: season.injured,
       role: season.pj >= 28 ? "Titular" : season.pj >= 14 ? "Rotación" : "Suplente",
       duelResult: season.duelResult,
       champion: season.champion, natl, wasAngry: s.angry, ballon,
       onLoan: !!s.parentClubId, parentClubId: s.parentClubId,
       severeInjury: season.severeInjury,
       warning: bad && !releasedNow && !s.parentClubId && !isHome, // te bancan, pero avisan
+      hintReaction: s.hintReaction || null, // reacción del club a la indirecta que tiraste
     };
     // los clubes resentidos se van olvidando de a poco
     const cooledBlocked = {};
@@ -599,6 +631,7 @@ export default function App() {
       capGoals: s.capGoals + (natl?.goals || 0),
       trophies: [...s.trophies, ...newTrophies],
       hintedClub: null,
+      hintReaction: null,
       trainerBoost: false,
       fisio: false,
       angry: false, // la bronca de la hinchada dura una temporada
@@ -742,20 +775,25 @@ export default function App() {
   }
 
   function negotiate(offer, idx) {
-    if (offer.negotiated) return;
     const c = club(offer.clubId);
-    let chance = clamp(0.35 + (state.ovr - c.req) / 60, 0.2, 0.8);
-    if (state.agent) chance = clamp(chance + 0.2, 0, 0.95);
-    if (Math.random() < chance) {
-      setOffers((prev) => prev.map((o, i) => (i === idx ? { ...o, wage: Math.round(o.wage * 1.25), negotiated: true } : o)));
-      setNegMsg({ text: `${c.name} aceptó mejorar la oferta un 25%.`, ok: true });
-    } else if (Math.random() < (state.agent ? 0.1 : 0.35) && !(released && offers.length <= 1)) {
-      // nunca te dejamos sin la última salida si estás obligado a irte
+    const rounds = offer.negotiations || 0; // cuántas veces ya negociaste esta oferta
+    // cada ronda extra baja la chance de éxito y sube la de que se enojen
+    let chance = clamp(0.55 + (state.ovr - c.req) / 60 - rounds * 0.18, 0.1, 0.85);
+    if (state.agent) chance = clamp(chance + 0.15, 0, 0.92);
+    // riesgo de que retiren la oferta: crece con cada intento (nunca en tu única salida forzada)
+    const withdrawRisk = released && offers.length <= 1 ? 0 : clamp(0.1 + rounds * 0.18 - (state.agent ? 0.1 : 0), 0, 0.7);
+
+    if (Math.random() < withdrawRisk) {
       setOffers((prev) => prev.filter((_, i) => i !== idx));
-      setNegMsg({ text: `${c.name} se molestó y retiró la oferta.`, ok: false });
+      setNegMsg({ text: `${c.name} se cansó de tus pedidos y retiró la oferta.`, ok: false });
+      return;
+    }
+    if (Math.random() < chance) {
+      setOffers((prev) => prev.map((o, i) => (i === idx ? { ...o, wage: Math.round(o.wage * 1.2), negotiations: rounds + 1 } : o)));
+      setNegMsg({ text: `${c.name} mejoró la oferta un 20%. ${rounds >= 1 ? "Pero cada vez se ponen más tensos…" : "¿Seguís apretando?"}`, ok: true });
     } else {
-      setOffers((prev) => prev.map((o, i) => (i === idx ? { ...o, negotiated: true } : o)));
-      setNegMsg({ text: `${c.name} no mejora: es su oferta final.`, ok: false });
+      setOffers((prev) => prev.map((o, i) => (i === idx ? { ...o, negotiations: rounds + 1 } : o)));
+      setNegMsg({ text: `${c.name} no cede esta vez. Cuidado: si insistís mucho pueden retirarse.`, ok: false });
     }
   }
 
@@ -764,7 +802,22 @@ export default function App() {
     const hint = pendingHint; // la indirecta viene aparte, no gasta la acción
     const hintIsRival = hint && RIVALS[state.clubId] === hint;
     let s = { ...state, hintedClub: hint || null, angry: hintIsRival };
-    if (hint) s = { ...s, hintCooldown: Math.random() < 0.5 ? 3 : 4 }; // reutilizable cada 3-4 años
+    if (hint) {
+      s = { ...s, hintCooldown: Math.random() < 0.5 ? 3 : 4 }; // reutilizable cada 3-4 años
+      // Reacción del club según cuánto le sobrás a su nivel requerido:
+      // les sobrás -> interesados | justo -> tibios | muy por debajo -> te desmienten en público
+      const target = club(hint);
+      const gap = state.ovr - target.req;
+      let reaction;
+      if (gap >= 3) reaction = "interesado";
+      else if (gap >= -5) reaction = "tibio";
+      else reaction = "desmentido";
+      s = { ...s, hintReaction: { clubId: hint, type: reaction } };
+      // el desmentido de un club grande al que apuntaste muy alto molesta a tu hinchada actual
+      if (reaction === "desmentido") s = { ...s, blockedClubs: { ...s.blockedClubs, [hint]: 2 } };
+    } else {
+      s = { ...s, hintReaction: null };
+    }
     if (decision.trainer) { s = { ...s, money: s.money - trainerCost(s), trainerBoost: true }; }
     if (decision.fisio) { s = { ...s, money: s.money - fisioCost(s), fisio: true }; }
     if (decision.agent) { s = { ...s, money: s.money - agentCost(s), agent: true }; }
@@ -969,6 +1022,12 @@ export default function App() {
     if (lastSeason.duelResult === "lost") notices.push({ c: "text-red-400", t: "🥊 El pibe te pasó por arriba y te comió el puesto. Pasaste el año en el banco." });
     if (lastSeason.warning) notices.push({ c: "text-orange-400", t: `⚠️ En ${club(lastSeason.clubId).name} no están conformes: otra temporada así y te sueltan.` });
     if (lastSeason.wasAngry) notices.push({ c: "text-red-400", t: "😡 Tu hinchada no te perdonó la indirecta al clásico rival: jugaste presionado todo el año." });
+    if (lastSeason.hintReaction) {
+      const hc = club(lastSeason.hintReaction.clubId).name;
+      if (lastSeason.hintReaction.type === "interesado") notices.push({ c: "text-emerald-300", t: `🗣️ Tu indirecta funcionó: en ${hc} tomaron nota y te siguen de cerca.` });
+      else if (lastSeason.hintReaction.type === "tibio") notices.push({ c: "text-neutral-400", t: `🗣️ Tu indirecta a ${hc} no movió mucho el amperímetro: te ven, pero sin apuro.` });
+      else notices.push({ c: "text-red-400", t: `🗣️ ${hc} salió a aclarar públicamente que no estás en sus planes. Te apuntaste demasiado alto.` });
+    }
 
     return (
       <>
@@ -997,7 +1056,7 @@ export default function App() {
               </p>
               <p className="text-sm mt-1">
                 <span className={`mr-1.5 text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${lastSeason.role === "Titular" ? "bg-emerald-900 text-emerald-300" : lastSeason.role === "Rotación" ? "bg-amber-900 text-amber-300" : "bg-neutral-800 text-neutral-400"}`}>{lastSeason.role}</span>
-                {lastSeason.pj} PJ · {lastSeason.gls} goles · {lastSeason.ast} asist.</p>
+                {lastSeason.pj} PJ · {state.pos === "POR" ? `${lastSeason.cleanSheets || 0} vallas invictas` : `${lastSeason.gls} goles · ${lastSeason.ast} asist.`}</p>
             </div>
             <div className={`text-2xl font-bold ${lastSeason.rating >= 7 ? "text-emerald-400" : lastSeason.rating < 5.8 ? "text-red-400" : "text-neutral-300"}`}>
               {lastSeason.rating}
@@ -1018,7 +1077,7 @@ export default function App() {
   const HistoryTable = ({ compact }) => (
     <div className="bg-neutral-950 rounded-2xl p-4">
       <div className="grid grid-cols-7 text-[10px] uppercase tracking-wider text-neutral-500 pb-2 border-b border-neutral-800">
-        <span>Edad</span><span className="col-span-2">Club</span><span className="text-right">OVR</span><span className="text-right">PJ</span><span className="text-right">G</span><span className="text-right">A</span>
+        <span>Edad</span><span className="col-span-2">Club</span><span className="text-right">OVR</span><span className="text-right">PJ</span><span className="text-right">{state.pos === "POR" ? "VI" : "G"}</span><span className="text-right">{state.pos === "POR" ? "" : "A"}</span>
       </div>
       {(compact ? state.history.slice(-6) : state.history).map((h, i) => (
         <div key={i} className="grid grid-cols-7 text-sm py-1.5 border-b border-neutral-900 last:border-0 items-center">
@@ -1031,8 +1090,8 @@ export default function App() {
           </span>
           <span className="text-right font-semibold">{h.ovr}</span>
           <span className="text-right text-neutral-400">{h.pj}</span>
-          <span className="text-right text-neutral-400">{h.gls}</span>
-          <span className="text-right text-neutral-400">{h.ast}</span>
+          <span className="text-right text-neutral-400">{state.pos === "POR" ? (h.cleanSheets || 0) : h.gls}</span>
+          <span className="text-right text-neutral-400">{state.pos === "POR" ? "" : h.ast}</span>
         </div>
       ))}
     </div>
@@ -1056,9 +1115,9 @@ export default function App() {
                     className="bg-neutral-900 rounded-xl p-3 text-center hover:bg-neutral-800 transition active:scale-95">
                     <p className="text-[10px] text-neutral-500 mb-1">Fichar por</p>
                     <div className="flex justify-center mb-1"><ClubLogo id={id} size={32} /></div>
-                    <p className="font-bold text-sm leading-tight">{c.name}</p>
-                    <p className="text-[10px] text-neutral-500 mt-2">{c.league}</p>
-                    <p className="text-[10px] text-emerald-400 mt-1">Desarrollo {c.prestige}</p>
+                    <p className="font-bold text-xs leading-tight break-words">{c.name}</p>
+                    <p className="text-[9px] text-neutral-500 mt-1.5">{leagueShort(c.league)}</p>
+                    <p className="text-[10px] text-emerald-400 mt-1">Nivel {c.prestige}</p>
                   </button>
                 );
               })}
@@ -1092,7 +1151,7 @@ export default function App() {
                       <ClubLogo id={o.id} size={28} />
                       <div className="min-w-0">
                         <p className="font-bold truncate">{o.name}</p>
-                        <p className="text-xs text-neutral-500 truncate">{o.league} · Desarrollo {o.prestige}</p>
+                        <p className="text-xs text-neutral-500 truncate">{leagueShort(o.league)} · Nivel {o.prestige}</p>
                       </div>
                     </div>
                     <span className="text-xs text-sky-300 shrink-0 ml-2">Vas a jugar seguro</span>
@@ -1180,6 +1239,8 @@ export default function App() {
     else if (e.duelResult === "lost") { head = "CAMBIO DE GUARDIA"; sub = `El pibe le ganó el lugar a ${ap}, que pasó el año en el banco.`; }
     else if (e.severeInjury) { head = "PARTE MÉDICO PREOCUPANTE"; sub = `Lesión grave de ${ap}: temporada marcada por la recuperación.`; }
     else if (e.rating >= 7.8) { head = "TEMPORADA SOÑADA"; sub = `${ap} la rompió en ${c.name}: ${e.gls > 0 ? `${e.gls} goles, ` : ""}rating ${e.rating}.`; }
+    else if (e.hintReaction?.type === "desmentido") { head = "\"NO ESTÁ EN NUESTROS PLANES\""; sub = `Desde ${club(e.hintReaction.clubId).name} salieron a bajarle el pulgar a ${ap} tras sus declaraciones. Un baldazo de agua fría.`; }
+    else if (e.hintReaction?.type === "interesado") { head = "SUENA FUERTE"; sub = `${club(e.hintReaction.clubId).name} sigue de cerca a ${ap} después de sus palabras. El pase se calienta.`; }
     else if (e.warning) { head = "BAJO LA LUPA"; sub = `En ${c.name} pierden la paciencia con ${ap}. La próxima temporada define todo.`; }
     else { head = "OTRA VUELTA AL SOL"; sub = `Temporada ${e.rating >= 6.5 ? "correcta" : "irregular"} de ${ap} en ${c.name}: ${e.pj} partidos, rating ${e.rating}.`; }
     return (
@@ -1282,9 +1343,14 @@ export default function App() {
             ) : (
               <>
                 <h2 className="text-xl font-bold">Mercado de pases</h2>
-                <p className="text-sm text-neutral-400 mt-1 mb-4">
-                  {offers.length > 0 ? "¿Seguís donde estás o fichás? Podés negociar cada oferta una vez." : "Esta temporada nadie preguntó por vos."}
+                <p className="text-sm text-neutral-400 mt-1 mb-2">
+                  {offers.length > 0 ? "¿Seguís donde estás o fichás? Podés negociar cada oferta." : "Esta temporada nadie preguntó por vos."}
                 </p>
+                <div className="flex items-center gap-2 bg-neutral-900 rounded-lg px-3 py-2 mb-4 text-sm">
+                  <ClubLogo id={state.clubId} size={18} />
+                  <span className="text-neutral-400">Tu sueldo actual en {c.name}:</span>
+                  <span className="font-bold text-white ml-auto">{fmtMoney(state.wage)}<span className="text-xs text-neutral-500">/año</span></span>
+                </div>
               </>
             )}
             {negMsg && <p className={`text-sm mb-3 ${negMsg.ok ? "text-emerald-400" : "text-red-400"}`}>{negMsg.text}</p>}
@@ -1298,14 +1364,23 @@ export default function App() {
                         <ClubLogo id={o.clubId} size={32} />
                         <div className="min-w-0">
                           <p className="font-bold truncate">{oc.name}</p>
-                          <p className="text-xs text-neutral-500 truncate">{oc.league} · Desarrollo {oc.prestige}</p>
+                          <p className="text-xs text-neutral-500 truncate">{leagueShort(oc.league)} · Nivel {oc.prestige}</p>
                         </div>
                       </div>
-                      <p className="font-bold text-emerald-400 shrink-0 ml-2">{fmtMoney(o.wage)}<span className="text-xs text-neutral-500">/año</span></p>
+                      <div className="text-right shrink-0 ml-2">
+                        <p className="font-bold text-emerald-400">{fmtMoney(o.wage)}<span className="text-xs text-neutral-500">/año</span></p>
+                        {state.clubId && (
+                          <p className={`text-[10px] font-semibold ${o.wage > state.wage ? "text-emerald-400" : o.wage < state.wage ? "text-red-400" : "text-neutral-500"}`}>
+                            {o.wage > state.wage ? `↑ +${fmtMoney(o.wage - state.wage)}` : o.wage < state.wage ? `↓ ${fmtMoney(o.wage - state.wage)}` : "= igual"}
+                          </p>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <button className="flex-1 bg-white text-black rounded-full py-2 text-sm font-semibold active:scale-95" onClick={() => chooseClub(o)}>Fichar</button>
-                      <button disabled={o.negotiated} className="flex-1 border border-neutral-600 rounded-full py-2 text-sm font-semibold disabled:opacity-30 active:scale-95" onClick={() => negotiate(o, idx)}>Negociar</button>
+                      <button className="flex-1 bg-amber-500 text-amber-950 rounded-full py-2 text-sm font-semibold active:scale-95 hover:bg-amber-400" onClick={() => negotiate(o, idx)}>
+                        Negociar{o.negotiations ? ` (${o.negotiations})` : ""}
+                      </button>
                     </div>
                   </div>
                 );
@@ -1315,7 +1390,7 @@ export default function App() {
 
           {!released && (
             <button className={S.btnPrimary} onClick={() => chooseClub(null)}>
-              Seguir en {c.name}
+              Seguir en {c.name} · {fmtMoney(state.wage)}/año
             </button>
           )}
           {state.age >= 31 && (
@@ -1388,7 +1463,7 @@ export default function App() {
                         <span className="text-xs text-neutral-400">✕ quitar</span>
                       </button>
                     ) : (
-                      <ClubPicker targets={hintTargets} rival={RIVALS[state.clubId]} onPick={setPendingHint} />
+                      <ClubPicker targets={hintTargets} rival={RIVALS[state.clubId]} playerOvr={state.ovr} onPick={setPendingHint} />
                     )}
                   </>
                 )}
@@ -1405,7 +1480,9 @@ export default function App() {
     const peak = Math.max(...state.history.map((h) => h.ovr));
     const totalGls = state.history.reduce((s, h) => s + h.gls, 0);
     const totalAst = state.history.reduce((s, h) => s + h.ast, 0);
+    const totalCS = state.history.reduce((s, h) => s + (h.cleanSheets || 0), 0);
     const totalPj = state.history.reduce((s, h) => s + h.pj, 0);
+    const isKeeper = state.pos === "POR";
     const bestClub = state.history.reduce((a, b) => (club(a.clubId).prestige > club(b.clubId).prestige ? a : b));
     const ballons = state.trophies.filter((t) => t.name === "Balón de Oro").length;
     const leg = LEGENDS[posGroup(state.pos)];
@@ -1434,8 +1511,16 @@ export default function App() {
               </div>
               <div className="grid grid-cols-4 gap-2 mt-4 text-center">
                 <div><p className="text-lg font-bold">{totalPj}</p><p className="text-[9px] uppercase text-white/50">PJ</p></div>
-                <div><p className="text-lg font-bold">{totalGls}</p><p className="text-[9px] uppercase text-white/50">Goles</p></div>
-                <div><p className="text-lg font-bold">{totalAst}</p><p className="text-[9px] uppercase text-white/50">Asist.</p></div>
+                {isKeeper ? (
+                  <div><p className="text-lg font-bold">{totalCS}</p><p className="text-[9px] uppercase text-white/50">Vallas inv.</p></div>
+                ) : (
+                  <div><p className="text-lg font-bold">{totalGls}</p><p className="text-[9px] uppercase text-white/50">Goles</p></div>
+                )}
+                {isKeeper ? (
+                  <div><p className="text-lg font-bold">{totalGls + totalAst}</p><p className="text-[9px] uppercase text-white/50">G+A</p></div>
+                ) : (
+                  <div><p className="text-lg font-bold">{totalAst}</p><p className="text-[9px] uppercase text-white/50">Asist.</p></div>
+                )}
                 <div><p className="text-lg font-bold text-emerald-400">{fmtMoney(state.money)}</p><p className="text-[9px] uppercase text-white/50">Fortuna</p></div>
               </div>
               <div className="flex flex-wrap gap-1.5 mt-4">
@@ -1627,7 +1712,7 @@ function DecisionCard({ title, desc, cost, costOk, disabled, onClick }) {
   );
 }
 
-function ClubPicker({ targets, rival, onPick }) {
+function ClubPicker({ targets, rival, playerOvr, onPick }) {
   const [q, setQ] = useState("");
   const [lg, setLg] = useState("Todas");
   const leagues = ["Todas", ...Array.from(new Set(targets.map((c) => c.league)))];
@@ -1635,6 +1720,13 @@ function ClubPicker({ targets, rival, onPick }) {
     (lg === "Todas" || c.league === lg) &&
     c.name.toLowerCase().includes(q.toLowerCase())
   );
+  // ¿Cómo va a reaccionar el club a tu nivel? (mismo criterio que invest)
+  const reactionHint = (req) => {
+    const gap = (playerOvr || 0) - req;
+    if (gap >= 3) return { label: "te querrían", cls: "text-emerald-400" };
+    if (gap >= -5) return { label: "quizás", cls: "text-amber-400" };
+    return { label: "muy alto", cls: "text-red-400" };
+  };
   return (
     <div>
       <input
@@ -1655,11 +1747,15 @@ function ClubPicker({ targets, rival, onPick }) {
         {filtered.length === 0 && <p className="text-xs text-neutral-600 text-center py-3">Sin clubes que coincidan.</p>}
         {filtered.map((c) => {
           const isRival = rival === c.id;
+          const rh = reactionHint(c.req);
           return (
             <button key={c.id} onClick={() => onPick(c.id)}
               className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 transition active:scale-[0.98] ${isRival ? "bg-red-950/40 hover:bg-red-950/70" : "bg-black hover:bg-neutral-800"}`}>
-              <span className={`text-sm font-semibold ${isRival ? "text-red-300" : ""}`}>{c.name}{isRival ? " ⚠️" : ""}</span>
-              <span className="text-[10px] text-neutral-500">{c.league.split(" (")[0]} · req {c.req}</span>
+              <span className="flex items-center gap-1.5 min-w-0">
+                <ClubLogo id={c.id} size={16} />
+                <span className={`text-sm font-semibold truncate ${isRival ? "text-red-300" : ""}`}>{c.name}{isRival ? " ⚠️" : ""}</span>
+              </span>
+              <span className={`text-[10px] shrink-0 ml-2 ${rh.cls}`}>{rh.label}</span>
             </button>
           );
         })}
