@@ -350,7 +350,7 @@ function loanOptions(state) {
 // Cada opción tiene una "dificultad" (risk): más difícil = más recompensa si sale, más costo si falla.
 const CLUTCH_MOMENTS = [
   {
-    id: "penal_final", type: "pitch", emoji: "🥅",
+    id: "penal_final", type: "pitch", pos: "field", emoji: "🥅",
     title: "Penal en la definición",
     setup: "Último minuto, penal para tu equipo en un partido clave. Agarrás la pelota. ¿Dónde la ponés?",
     options: [
@@ -360,7 +360,7 @@ const CLUTCH_MOMENTS = [
     ],
   },
   {
-    id: "mano_a_mano", type: "pitch", emoji: "⚡",
+    id: "mano_a_mano", type: "pitch", pos: "field", emoji: "⚡",
     title: "Mano a mano decisivo",
     setup: "Quedaste solo frente al arquero en un momento caliente. Definís...",
     options: [
@@ -370,7 +370,7 @@ const CLUTCH_MOMENTS = [
     ],
   },
   {
-    id: "tiro_libre", type: "pitch", emoji: "🎯",
+    id: "tiro_libre", type: "pitch", pos: "field", emoji: "🎯",
     title: "Tiro libre al borde del área",
     setup: "Falta peligrosa a la altura de la medialuna. La barrera se arma. Ya sabés qué querés hacer.",
     options: [
@@ -380,7 +380,27 @@ const CLUTCH_MOMENTS = [
     ],
   },
   {
-    id: "declaraciones", type: "off", emoji: "🎤",
+    id: "atajar_penal", type: "pitch", pos: "gk", emoji: "🧤",
+    title: "Penal en contra en la última",
+    setup: "Penal para el rival en el último minuto de un partido clave. Sos el arquero. Elegís tu apuesta...",
+    options: [
+      { label: "Adivinar un palo y volar", risk: 0.4, reward: "huge", desc: "Si le acertás al lado, sos héroe. Si no, quedás pagando." },
+      { label: "Aguantar hasta el último instante", risk: 0.3, reward: "big", desc: "Leer al pateador requiere sangre fría, pero paga." },
+      { label: "Quedarte parado en el medio", risk: 0.2, reward: "mid", desc: "Algunos la mandan al centro: podés tapar sin moverte." },
+    ],
+  },
+  {
+    id: "salida_arquero", type: "pitch", pos: "gk", emoji: "🧤",
+    title: "Pelota larga, salís o te quedás",
+    setup: "Un pelotazo deja al delantero rival mano a mano. Estás lejos del arco. ¿Qué hacés?",
+    options: [
+      { label: "Salir a cortar afuera del área", risk: 0.45, reward: "huge", desc: "Si llegás, evitás el gol. Si no, roja y golazo en contra." },
+      { label: "Achicar el ángulo dentro del área", risk: 0.25, reward: "big", desc: "Le tapás el arco y lo obligás a definir difícil." },
+      { label: "Quedarte en la línea y esperar", risk: 0.2, reward: "mid", desc: "Reaccionás al remate: seguro, pero le das la iniciativa." },
+    ],
+  },
+  {
+    id: "declaraciones", type: "off", pos: "any", emoji: "🎤",
     title: "Micrófono caliente",
     setup: "Un periodista te pregunta si estás a la altura de los grandes del club. La respuesta va a titular en todos lados.",
     options: [
@@ -612,8 +632,12 @@ function generateOffers(state, seasonRating, forced) {
     if (forced && c.tier <= current.tier) chance += 0.3; // los chicos te ven accesible
     if (!needsYourPos && !forced) chance *= 0.15; // no buscan tu puesto: casi imposible
     if (Math.random() < clamp(chance, 0.02, 0.9)) {
-      const wage = Math.round(marketValue(state.ovr, state.age, state.pos) * rf(0.08, 0.12) * (forced ? 0.8 : 1));
-      offers.push({ clubId: c.id, wage, negotiated: false, returning: bond > 0 });
+      let wageMult = rf(0.08, 0.12) * (forced ? 0.8 : 1);
+      // Si le tiraste una indirecta a este club y les sobrás de nivel, te quieren sí o sí:
+      // te tiran el mejor contrato posible para convencerte de que vengas.
+      if (reaction === "interesado" && state.ovr - c.req >= 6) wageMult = rf(0.14, 0.18);
+      const wage = Math.round(marketValue(state.ovr, state.age, state.pos) * wageMult);
+      offers.push({ clubId: c.id, wage, negotiated: false, returning: bond > 0, courting: reaction === "interesado" && state.ovr - c.req >= 6 });
     }
   });
   // Selección con variedad: mezclamos y priorizamos, pero sin quedarnos SIEMPRE con los 2 de
@@ -645,6 +669,7 @@ export default function App() {
   const [offers, setOffers] = useState([]);
   const [released, setReleased] = useState(false);
   const [negMsg, setNegMsg] = useState(null);
+  const [renewal, setRenewal] = useState(null); // { offer, rounds, msg } oferta de renovación de tu club
   const [pendingHint, setPendingHint] = useState(null); // indirecta elegida (opcional) antes de la acción
   const [postDiario, setPostDiario] = useState(null); // pantalla que sigue después de la tapa del diario
   const [diarioKind, setDiarioKind] = useState("normal");
@@ -775,7 +800,12 @@ export default function App() {
     // sos parte del equipo (no en tu primer año ni de muy pibe). Mitad del tiempo, para que sea especial.
     const clutchReady = (s.clutchCooldown || 0) <= 0 && s.age >= 19 && s.history.length >= 1 && !s.parentClubId;
     if (clutchReady && Math.random() < 0.5) {
-      const moment = CLUTCH_MOMENTS[Math.floor(Math.random() * CLUTCH_MOMENTS.length)];
+      // solo momentos que correspondan a tu posición: un arquero no patea tiros libres
+      const isKeeper = s.pos === "POR";
+      const validMoments = CLUTCH_MOMENTS.filter((m) =>
+        m.pos === "any" || (isKeeper ? m.pos === "gk" : m.pos === "field")
+      );
+      const moment = validMoments[Math.floor(Math.random() * validMoments.length)];
       setClutch({ moment, pendingState: s });
       setScreen("clutch");
       return;
@@ -915,7 +945,7 @@ export default function App() {
       const withBlock = { ...next, badStreak: 0, blockedClubs: { ...next.blockedClubs, [s.clubId]: 3 } };
       setState(withBlock);
       setReleased(true);
-      setOffers(generateOffers(withBlock, season.rating, true));
+      setOffers(generateOffers(withBlock, season.rating, true)); setRenewal(null);
       setNegMsg(null);
       goDiario("mercado", "released", party);
       return;
@@ -946,7 +976,7 @@ export default function App() {
 
     setState(next);
     setReleased(false);
-    setOffers(generateOffers(next, season.rating, false));
+    setOffers(generateOffers(next, season.rating, false)); setRenewal(null);
     setNegMsg(null);
     goDiario("mercado", "normal", party);
   }
@@ -1016,7 +1046,46 @@ export default function App() {
     const next = offer ? { ...state, clubId: offer.clubId, wage: offer.wage, badStreak: 0 } : state;
     setState(next);
     setOffers([]);
+    setRenewal(null);
     setScreen("pretemporada");
+  }
+
+  // Aceptar la renovación: te quedás en tu club con el nuevo sueldo.
+  function acceptRenewal() {
+    const next = { ...state, wage: renewal.offer, badStreak: 0 };
+    setState(next);
+    setOffers([]);
+    setRenewal(null);
+    setScreen("pretemporada");
+  }
+
+  // Abrir la mesa de renovación con tu club actual. Su oferta inicial depende de cuánto te valoran
+  // (tu nivel vs lo que piden) y de las ofertas que tengas sobre la mesa.
+  function openRenewal() {
+    const c = club(state.clubId);
+    const bestOffer = offers.reduce((max, o) => Math.max(max, o.wage), 0);
+    // cuánto te valora el club: si les sobrás, igualan más; si estás justo, menos
+    const valued = clamp((state.ovr - c.req) / 25 + 0.5, 0.3, 1);
+    // base: mejoran tu sueldo actual, y si hay ofertas afuera intentan acercarse
+    const target = Math.max(state.wage * 1.15, bestOffer * valued);
+    const first = Math.round(Math.max(target, state.wage) / 1000) * 1000;
+    setRenewal({ offer: first, rounds: 0, msg: bestOffer > 0
+      ? `${c.name} quiere retenerte y pone sobre la mesa ${fmtMoney(first)}/año.`
+      : `${c.name} te ofrece renovar por ${fmtMoney(first)}/año.` });
+  }
+
+  // Pedir más en la renovación. El club cede con chance decreciente; si te pasás, cierran en su número.
+  function pushRenewal() {
+    const c = club(state.clubId);
+    const rounds = renewal.rounds;
+    const valued = clamp((state.ovr - c.req) / 25 + 0.5, 0.3, 1);
+    const chance = clamp(0.6 * valued - rounds * 0.22 + (state.agent ? 0.12 : 0), 0.05, 0.8);
+    if (Math.random() < chance) {
+      const improved = Math.round((renewal.offer * rf(1.12, 1.22)) / 1000) * 1000;
+      setRenewal({ offer: improved, rounds: rounds + 1, msg: `${c.name} hace un esfuerzo y sube a ${fmtMoney(improved)}/año.` });
+    } else {
+      setRenewal({ ...renewal, rounds: rounds + 1, msg: `${c.name} no se mueve de ${fmtMoney(renewal.offer)}/año: es su tope. Aceptá o buscá afuera.`, capped: true });
+    }
   }
 
   // Riesgo de que el club retire la oferta si seguís negociando (crece con cada intento).
@@ -1083,9 +1152,10 @@ export default function App() {
 
   // clubes alcanzables para indirecta: tu nivel o un poco por encima, sin filtrar cantidad
   // (el buscador de abajo se encarga de que no abrume)
+  // Podés tirarle una indirecta a CUALQUIER club (menos el tuyo). La reacción del club
+  // según tu nivel ya se encarga de si te toman en serio o te desmienten.
   const hintTargets = state && state.clubId
-    ? CLUBS.filter((c) => c.id !== state.clubId && c.tier >= club(state.clubId).tier && state.ovr >= c.req - 8)
-        .sort((a, b) => b.prestige - a.prestige)
+    ? CLUBS.filter((c) => c.id !== state.clubId).sort((a, b) => b.prestige - a.prestige)
     : [];
 
   // ---------- ESTILOS ----------
@@ -1738,6 +1808,7 @@ export default function App() {
                           <p className="font-bold truncate">{oc.name}</p>
                           <p className="text-xs text-neutral-500 truncate">{leagueShort(oc.league)} · Nivel {oc.prestige}</p>
                           {o.returning && <p className="text-[10px] text-sky-400 font-semibold mt-0.5">💙 Te conocen y te quieren de vuelta</p>}
+                          {o.courting && <p className="text-[10px] text-emerald-400 font-semibold mt-0.5">🔥 Te quieren sí o sí: contratón</p>}
                         </div>
                       </div>
                       <div className="text-right shrink-0 ml-2">
@@ -1771,10 +1842,47 @@ export default function App() {
             </div>
           </div>
 
-          {!released && (
-            <button className={S.btnPrimary} onClick={() => chooseClub(null)}>
-              Seguir en {c.name} · {fmtMoney(state.wage)}/año
-            </button>
+          {!released && !renewal && (
+            <div className="space-y-2">
+              <button className={S.btnPrimary} onClick={() => chooseClub(null)}>
+                Seguir en {c.name} · {fmtMoney(state.wage)}/año
+              </button>
+              <button
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-full py-3 text-sm font-semibold active:scale-95 transition"
+                onClick={openRenewal}>
+                💬 Renovar contrato con {c.name}
+              </button>
+            </div>
+          )}
+
+          {/* Mesa de renovación con tu club */}
+          {!released && renewal && (
+            <div className="bg-neutral-950 rounded-2xl p-4 border border-emerald-800">
+              <div className="flex items-center gap-2 mb-2">
+                <ClubLogo id={state.clubId} size={22} />
+                <p className="font-bold">Renovación con {c.name}</p>
+              </div>
+              <p className="text-sm text-neutral-400 mb-3">{renewal.msg}</p>
+              <div className="flex items-center justify-between bg-neutral-900 rounded-lg px-3 py-2 mb-3">
+                <span className="text-xs text-neutral-500">Nuevo sueldo</span>
+                <span className="font-bold text-emerald-400">{fmtMoney(renewal.offer)}<span className="text-xs text-neutral-500">/año</span>
+                  {renewal.offer > state.wage && <span className="text-[10px] text-emerald-400 ml-1">↑ +{fmtMoney(renewal.offer - state.wage)}</span>}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button className="flex-1 bg-white text-black rounded-full py-2 text-sm font-semibold active:scale-95" onClick={acceptRenewal}>
+                  Aceptar y quedarme
+                </button>
+                {!renewal.capped && (
+                  <button className="flex-1 bg-amber-500 text-amber-950 rounded-full py-2 text-sm font-semibold active:scale-95 hover:bg-amber-400" onClick={pushRenewal}>
+                    Pedir más{renewal.rounds ? ` (${renewal.rounds})` : ""}
+                  </button>
+                )}
+              </div>
+              <button className="w-full mt-2 text-xs text-neutral-500 hover:text-white transition" onClick={() => setRenewal(null)}>
+                ← Volver a las ofertas
+              </button>
+            </div>
           )}
           {state.age >= 31 && (
             <button className="w-full mt-3 text-sm text-neutral-500 underline underline-offset-4 hover:text-white transition"
