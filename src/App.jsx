@@ -327,9 +327,14 @@ const shouldLoan = (state, season) =>
 // Opciones de préstamo: clubes más chicos donde sí vas a jugar
 function loanOptions(state) {
   const current = club(state.clubId);
-  return CLUBS.filter((c) => c.tier < current.tier && c.id !== state.clubId && state.ovr >= c.req - 6)
-    .sort((a, b) => b.prestige - a.prestige)
-    .slice(0, 3);
+  // candidatos: clubes de categoría menor donde podrías ir a sumar minutos
+  const pool = CLUBS.filter((c) => c.tier < current.tier && c.id !== state.clubId && state.ovr >= c.req - 6);
+  // priorizamos los de mejor nivel pero con azar, para que no sean SIEMPRE los mismos 3
+  const weighted = pool
+    .map((c) => ({ c, w: c.prestige + rf(0, 35) })) // el ruido random mezcla el orden
+    .sort((a, b) => b.w - a.w)
+    .map((x) => x.c);
+  return weighted.slice(0, 3);
 }
 
 // Hitos de carrera: se anuncian al cruzarlos
@@ -510,14 +515,22 @@ function generateOffers(state, seasonRating, forced) {
     else if (reaction === "tibio") chance += 0.18;
     else if (reaction === "desmentido") chance -= 0.3; // salieron a decir que no te quieren
     if (state.agent) chance += 0.12;
+    // memoria: si dejaste una buena relación en este club, hay más chance de que te vuelvan a llamar
+    const bond = (state.clubBonds || {})[c.id] || 0;
+    if (bond > 0) chance += bond * 0.12; // hasta +0.36 con relación máxima
     if (forced && c.tier <= current.tier) chance += 0.3; // los chicos te ven accesible
     if (!needsYourPos && !forced) chance *= 0.15; // no buscan tu puesto: casi imposible
     if (Math.random() < clamp(chance, 0.02, 0.9)) {
       const wage = Math.round(marketValue(state.ovr, state.age, state.pos) * rf(0.08, 0.12) * (forced ? 0.8 : 1));
-      offers.push({ clubId: c.id, wage, negotiated: false });
+      offers.push({ clubId: c.id, wage, negotiated: false, returning: bond > 0 });
     }
   });
-  const sorted = offers.sort((a, b) => club(b.clubId).prestige - club(a.clubId).prestige).slice(0, forced ? 3 : 2);
+  // Selección con variedad: mezclamos y priorizamos, pero sin quedarnos SIEMPRE con los 2 de
+  // más prestigio. Así el mercado se siente distinto cada temporada.
+  const shuffled = offers.sort(() => Math.random() - 0.5);
+  // los clubes con los que tenés relación previa tienen prioridad de aparecer (memoria)
+  shuffled.sort((a, b) => (b.returning ? 1 : 0) - (a.returning ? 1 : 0));
+  const sorted = shuffled.slice(0, forced ? 3 : 2);
   // red de seguridad: si te soltaron y nadie ofertó, un club humilde te levanta
   if (forced && sorted.length === 0) {
     const fallback = [...CLUBS].filter((c) => c.id !== state.clubId && !((state.blockedClubs || {})[c.id] > 0) && state.ovr >= c.req - 12)
@@ -592,6 +605,7 @@ export default function App() {
       hintCooldown: 0,
       badStreak: 0, blockedClubs: {},
       injuries: 0, formative: [], idolo: false, homecomingDone: false, homeOffer: null,
+      clubBonds: {},
       history: [],
     });
     setCantera(pickCantera());
@@ -671,6 +685,14 @@ export default function App() {
     Object.entries(s.blockedClubs || {}).forEach(([id, n]) => { if (n - 1 > 0) cooledBlocked[id] = n - 1; });
     // los clubes donde jugaste de pibe (hasta los 20) te formaron
     const formative = s.age <= 20 && !s.formative.includes(s.clubId) ? [...s.formative, s.clubId] : s.formative;
+    // relación con los clubes: una buena temporada te deja bien parado ahí para el futuro.
+    // Cada club acumula "cariño" (tope 3). Una mala temporada lo baja un poco.
+    const clubBonds = { ...(s.clubBonds || {}) };
+    if (s.clubId && !s.parentClubId) {
+      const cur = clubBonds[s.clubId] || 0;
+      if (season.rating >= 6.8) clubBonds[s.clubId] = clamp(cur + 1, 0, 3);
+      else if (season.rating < 5.6) clubBonds[s.clubId] = clamp(cur - 1, 0, 3);
+    }
     const next = {
       ...s,
       age: s.age + 1,
@@ -679,6 +701,7 @@ export default function App() {
       blockedClubs: cooledBlocked,
       injuries: s.injuries + (season.injured ? 1 : 0),
       formative,
+      clubBonds,
       money: s.money + s.wage + prize,
       caps: s.caps + (natl?.caps || 0),
       capGoals: s.capGoals + (natl?.goals || 0),
@@ -1427,6 +1450,7 @@ export default function App() {
                         <div className="min-w-0">
                           <p className="font-bold truncate">{oc.name}</p>
                           <p className="text-xs text-neutral-500 truncate">{leagueShort(oc.league)} · Nivel {oc.prestige}</p>
+                          {o.returning && <p className="text-[10px] text-sky-400 font-semibold mt-0.5">💙 Te conocen y te quieren de vuelta</p>}
                         </div>
                       </div>
                       <div className="text-right shrink-0 ml-2">
