@@ -182,7 +182,23 @@ const RIVALS = {
   athletic: "realsociedad", realsociedad: "athletic",
 };
 
-const CANTERA = ["river", "newells", "boca"]; // canteras históricas argentinas
+// Clubes que pueden ofrecerte la cantera: argentinos de las tres primeras categorías,
+// desde grandes formadores hasta clubes de ascenso. Se eligen 3 al azar en cada carrera.
+const CANTERA_POOL = [
+  "river", "boca", "racing", "independiente", "sanlo", "estudiantes", "velez",
+  "newells", "central", "lanus", "huracan", "talleres", "defensa", "argjrs",
+  "banfield", "colon", "union", "gimnasia", "chaca", "quilmes", "temperley",
+];
+
+function pickCantera() {
+  const pool = [...CANTERA_POOL];
+  const chosen = [];
+  for (let i = 0; i < 3 && pool.length > 0; i++) {
+    const idx = Math.floor(Math.random() * pool.length);
+    chosen.push(pool.splice(idx, 1)[0]);
+  }
+  return chosen;
+}
 const START_AGE = 16;
 const RETIRE_AGE = 38;
 
@@ -216,6 +232,41 @@ function fmtMoney(n) {
   if (n >= 1e6) return `€${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `€${Math.round(n / 1e3)}K`;
   return `€${n}`;
+}
+
+// Tier de OVR estilo FIFA Ultimate Team: color según el nivel del jugador.
+// Bronce ≤64 · Plata 65-74 · Oro 75-86 · Oro brillante 87-91 · Especial (violeta) 92+
+function ovrTier(ovr) {
+  if (ovr >= 92) return {
+    name: "Especial",
+    grad: "from-fuchsia-500 via-purple-600 to-fuchsia-800",
+    text: "text-fuchsia-100",
+    ring: "ring-fuchsia-400",
+  };
+  if (ovr >= 87) return {
+    name: "Oro brillante",
+    grad: "from-yellow-300 via-amber-400 to-yellow-600",
+    text: "text-amber-950",
+    ring: "ring-yellow-300",
+  };
+  if (ovr >= 75) return {
+    name: "Oro",
+    grad: "from-amber-500 via-amber-600 to-amber-800",
+    text: "text-amber-50",
+    ring: "ring-amber-400",
+  };
+  if (ovr >= 65) return {
+    name: "Plata",
+    grad: "from-slate-300 via-slate-400 to-slate-600",
+    text: "text-slate-900",
+    ring: "ring-slate-300",
+  };
+  return {
+    name: "Bronce",
+    grad: "from-orange-800 via-amber-900 to-orange-950",
+    text: "text-orange-100",
+    ring: "ring-orange-700",
+  };
 }
 
 const trainerCost = (s) => Math.round(s.wage * 0.4);
@@ -427,6 +478,7 @@ export default function App() {
   const [postDiario, setPostDiario] = useState(null); // pantalla que sigue después de la tapa del diario
   const [diarioKind, setDiarioKind] = useState("normal");
   const [celebration, setCelebration] = useState(null); // { title, subtitle, emoji } o null
+  const [cantera, setCantera] = useState([]); // 3 clubes random que te ofrecen la cantera
 
   // Toda temporada termina en la tapa del diario; después se sigue a la pantalla que corresponda.
   // Si hubo un logro grande, primero mostramos una pantalla de festejo.
@@ -470,6 +522,7 @@ export default function App() {
       injuries: 0, formative: [], idolo: false, homecomingDone: false, homeOffer: null,
       history: [],
     });
+    setCantera(pickCantera());
     setScreen("cantera");
   }
 
@@ -789,19 +842,49 @@ export default function App() {
           <Logo />
           <h1 className={S.h1}>Posición</h1>
           <Progress value={66} />
-          <div className="mt-5 rounded-2xl border border-white/20 bg-gradient-to-b from-emerald-950 to-emerald-900 p-4">
-            {layout.map((row, i) => (
-              <div key={i} className="flex justify-around my-3">
-                {row.map((p, j) =>
-                  p ? (
-                    <button key={p} onClick={() => setPos(p)}
-                      className={`${S.pill} ${pos === p ? "bg-white text-black shadow-lg shadow-white/30" : "bg-emerald-950/80 text-emerald-100"}`}>
-                      {p}
-                    </button>
-                  ) : <span key={j} className="px-4" />
-                )}
-              </div>
-            ))}
+          <div className="mt-5 rounded-2xl border border-white/20 overflow-hidden relative">
+            {/* Cancha de fútbol dibujada de fondo */}
+            <svg viewBox="0 0 300 500" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" aria-hidden="true">
+              <defs>
+                <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#0f5132" />
+                  <stop offset="100%" stopColor="#0a3d26" />
+                </linearGradient>
+              </defs>
+              {/* césped con franjas */}
+              <rect width="300" height="500" fill="url(#grass)" />
+              {[0, 1, 2, 3, 4, 5, 6, 7].map((n) => (
+                <rect key={n} x="0" y={n * 62.5} width="300" height="62.5" fill={n % 2 === 0 ? "#ffffff" : "#000000"} opacity="0.04" />
+              ))}
+              {/* líneas del campo */}
+              <g fill="none" stroke="#ffffff" strokeWidth="2" opacity="0.5">
+                <rect x="10" y="10" width="280" height="480" />
+                <line x1="10" y1="250" x2="290" y2="250" />
+                <circle cx="150" cy="250" r="45" />
+                <circle cx="150" cy="250" r="2.5" fill="#ffffff" />
+                {/* área superior */}
+                <rect x="75" y="10" width="150" height="65" />
+                <rect x="115" y="10" width="70" height="28" />
+                {/* área inferior */}
+                <rect x="75" y="425" width="150" height="65" />
+                <rect x="115" y="462" width="70" height="28" />
+              </g>
+            </svg>
+            {/* Botones de posición encima de la cancha */}
+            <div className="relative p-4">
+              {layout.map((row, i) => (
+                <div key={i} className="flex justify-around my-3">
+                  {row.map((p, j) =>
+                    p ? (
+                      <button key={p} onClick={() => setPos(p)}
+                        className={`${S.pill} ${pos === p ? "bg-white text-black shadow-lg shadow-white/40 scale-110" : "bg-black/50 text-white backdrop-blur-sm border border-white/20"}`}>
+                        {p}
+                      </button>
+                    ) : <span key={j} className="px-4" />
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
           <div className="flex gap-3 mt-6">
             <button className={`${S.btnGhost} flex-1`} onClick={() => setScreen("identidad")}>Volver</button>
@@ -817,9 +900,9 @@ export default function App() {
 
   const Header = () => (
     <div className="flex items-center gap-3 bg-neutral-950 rounded-2xl p-4 mb-4">
-      <div className="bg-gradient-to-b from-amber-500 to-amber-700 rounded-xl w-16 h-16 flex flex-col items-center justify-center shrink-0">
-        <span className="text-[9px] uppercase tracking-wide text-amber-100">OVR</span>
-        <span className="text-2xl font-bold">{Math.round(state.ovr)}</span>
+      <div className={`bg-gradient-to-b ${ovrTier(state.ovr).grad} rounded-xl w-16 h-16 flex flex-col items-center justify-center shrink-0`}>
+        <span className={`text-[9px] uppercase tracking-wide ${ovrTier(state.ovr).text} opacity-80`}>OVR</span>
+        <span className={`text-2xl font-black ${ovrTier(state.ovr).text}`}>{Math.round(state.ovr)}</span>
       </div>
       <div className="flex-1 min-w-0">
         <span className="bg-emerald-900 text-emerald-200 text-xs font-semibold rounded-md px-2 py-0.5">#{state.numero} {state.pos}</span>
@@ -966,7 +1049,7 @@ export default function App() {
             <p className="text-sm text-neutral-400 mt-1 mb-2">Tres clubes quieren sumarte a su proyecto juvenil. Elegí dónde empieza tu carrera.</p>
             <p className="text-xs text-neutral-500 mb-4">Ojo: un club más grande te desarrolla más rápido, pero vas a pelear más el puesto — y si no jugás, te sueltan.</p>
             <div className="grid grid-cols-3 gap-2">
-              {CANTERA.map((id) => {
+              {cantera.map((id) => {
                 const c = club(id);
                 return (
                   <button key={id} onClick={() => signCantera(id)}
@@ -1259,23 +1342,49 @@ export default function App() {
           <Header />
           <CareerChart />
           <div className="bg-neutral-950 rounded-2xl p-4 mb-4">
-            <h2 className="font-bold mb-1">Pretemporada en {club(state.clubId).name}: ¿en qué invertís?</h2>
-            <p className="text-xs text-neutral-500 mb-3">Lo que pagás afecta la temporada que arranca.</p>
+            <h2 className="font-bold mb-1">Pretemporada en {club(state.clubId).name}</h2>
+            <p className="text-xs text-neutral-500 mb-3">Elegí una acción para el año. Cada una gasta tu temporada — la indirecta de abajo es aparte y opcional.</p>
+            <div className="space-y-2">
+              <DecisionCard
+                title="💪 Preparador personal" cost={fmtMoney(trainerCost(state))} disabled={!canTrainer}
+                desc="Entrenás fuerte todo el año: tu OVR sube más rápido que de costumbre. La mejor forma de acelerar tu crecimiento."
+                onClick={() => invest({ trainer: true })}
+              />
+              <DecisionCard
+                title="🩺 Cuerpo de fisios" cost={fmtMoney(fisioCost(state))} disabled={!canFisio}
+                desc={`Baja tu riesgo de lesión del ${Math.round(injuryRisk(state, false) * 100)}% al ${Math.round(injuryRisk(state, true) * 100)}% este año${state.age >= 28 ? ", y frena la caída de OVR por la edad." : "."}${state.injuries > 0 ? ` Ya llevás ${state.injuries} lesi${state.injuries === 1 ? "ón" : "ones"}: tu cuerpo lo necesita.` : ""}`}
+                onClick={() => invest({ fisio: true })}
+              />
+              {!state.agent && (
+                <DecisionCard
+                  title="🕴️ Agente de élite" cost={fmtMoney(agentCost(state))} disabled={!canAgent}
+                  desc="Se paga una sola vez y queda para siempre: vas a recibir más ofertas de fichaje y a negociar mejores sueldos toda tu carrera."
+                  onClick={() => invest({ agent: true })}
+                />
+              )}
+              <DecisionCard
+                title="🏖️ Pretemporada tranquila" cost="Gratis" costOk
+                desc="No gastás nada y guardás la plata en el banco. Tu OVR evoluciona solo, según tu club y tu edad."
+                onClick={() => invest({})}
+              />
+            </div>
+
+            {/* Indirecta: abajo de todo, opcional, no gasta la acción del año */}
             {hintTargets.length > 0 && (
-              <div className="bg-neutral-900 rounded-xl p-3 mb-3">
+              <div className="bg-neutral-900 rounded-xl p-3 mt-3 border-t-2 border-neutral-800">
                 <div className="flex justify-between items-center">
-                  <p className="font-semibold text-sm">🗣️ Indirecta (opcional, no gasta tu acción)</p>
+                  <p className="font-semibold text-sm">🗣️ Tirar una indirecta</p>
                   {state.hintCooldown > 0
-                    ? <span className="text-xs text-neutral-500">Disponible en {state.hintCooldown} temporada{state.hintCooldown > 1 ? "s" : ""}</span>
-                    : <span className="text-xs text-emerald-400">Lista</span>}
+                    ? <span className="text-xs text-neutral-500">Podés usarla de nuevo en {state.hintCooldown} temporada{state.hintCooldown > 1 ? "s" : ""}</span>
+                    : <span className="text-xs text-emerald-400">Disponible · opcional</span>}
                 </div>
                 {state.hintCooldown === 0 && (
                   <>
-                    <p className="text-xs text-neutral-500 mt-0.5 mb-2">Elegí un club (o ninguno) y después tu acción del año. ⚠️ = clásico rival.</p>
+                    <p className="text-xs text-neutral-500 mt-0.5 mb-2">Le decís a la prensa que querés jugar en cierto club. Sube mucho la chance de que ese club te ofrezca fichaje al final del año. No gasta tu acción. ⚠️ = clásico rival: enoja a tu hinchada.</p>
                     {pendingHint ? (
                       <button onClick={() => setPendingHint(null)}
                         className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 ${RIVALS[state.clubId] === pendingHint ? "bg-red-950 border border-red-700" : "bg-white/10 border border-white/30"}`}>
-                        <span className="text-sm font-semibold">{club(pendingHint).name}{RIVALS[state.clubId] === pendingHint ? " ⚠️" : ""} <span className="text-neutral-400 font-normal">· {club(pendingHint).league}</span></span>
+                        <span className="text-sm font-semibold flex items-center gap-1.5"><ClubLogo id={pendingHint} size={16} />{club(pendingHint).name}{RIVALS[state.clubId] === pendingHint ? " ⚠️" : ""}</span>
                         <span className="text-xs text-neutral-400">✕ quitar</span>
                       </button>
                     ) : (
@@ -1285,30 +1394,6 @@ export default function App() {
                 )}
               </div>
             )}
-            <div className="space-y-2">
-              <DecisionCard
-                title="💪 Preparador personal" cost={fmtMoney(trainerCost(state))} disabled={!canTrainer}
-                desc="Crecés bastante más esta temporada."
-                onClick={() => invest({ trainer: true })}
-              />
-              <DecisionCard
-                title="🩺 Cuerpo de fisios" cost={fmtMoney(fisioCost(state))} disabled={!canFisio}
-                desc={`Riesgo de lesión: ${Math.round(injuryRisk(state, false) * 100)}% → ${Math.round(injuryRisk(state, true) * 100)}%${state.injuries > 0 ? ` (llevás ${state.injuries} lesi${state.injuries === 1 ? "ón" : "ones"}: tu cuerpo lo siente)` : ""}${state.age >= 28 ? ". Además frena tu declive físico." : "."}`}
-                onClick={() => invest({ fisio: true })}
-              />
-              {!state.agent && (
-                <DecisionCard
-                  title="🕴️ Agente de élite" cost={fmtMoney(agentCost(state))} disabled={!canAgent}
-                  desc="Para siempre: más ofertas y negociaciones mucho más efectivas."
-                  onClick={() => invest({ agent: true })}
-                />
-              )}
-              <DecisionCard
-                title="🏖️ Pretemporada normal" cost="Gratis" costOk
-                desc="No invertís nada y guardás la plata."
-                onClick={() => invest({})}
-              />
-            </div>
           </div>
           </div>
           <Footer />
@@ -1325,10 +1410,8 @@ export default function App() {
     const ballons = state.trophies.filter((t) => t.name === "Balón de Oro").length;
     const leg = LEGENDS[posGroup(state.pos)];
     const myStat = leg.statOf(state);
-    const cardGradient = peak >= 88 ? "from-yellow-500 via-amber-600 to-yellow-800"
-      : peak >= 78 ? "from-slate-300 via-slate-500 to-slate-700"
-      : peak >= 68 ? "from-amber-700 via-amber-800 to-amber-950"
-      : "from-neutral-600 via-neutral-700 to-neutral-900";
+    const peakTier = ovrTier(peak);
+    const cardGradient = peakTier.grad;
     return (
       <div className={S.page}>
         <div className={S.card}>
@@ -1346,6 +1429,7 @@ export default function App() {
                 <div className="text-center">
                   <p className="text-4xl font-black">{peak}</p>
                   <p className="text-[9px] uppercase tracking-widest text-white/50">OVR pico</p>
+                  <p className="text-[9px] uppercase tracking-wider text-white/70 font-bold mt-0.5">{peakTier.name}</p>
                 </div>
               </div>
               <div className="grid grid-cols-4 gap-2 mt-4 text-center">
@@ -1439,15 +1523,49 @@ function clubInitials(name) {
   return clean.slice(0, 3).toUpperCase();
 }
 
-function ClubLogo({ id, size = 20 }) {
-  if (!id) return null;
-  const c = CLUBS.find((x) => x.id === id);
-  if (!c) return null;
+// Dominios oficiales de los clubes para traer el logo real vía servicio de logos.
+// Si un club no está acá o la imagen falla, se usa el escudo generado como respaldo.
+// IDs de equipo de ESPN VERIFICADOS para traer el logo oficial desde su CDN.
+// Solo incluimos clubes con ID confirmado. Los que no están acá usan el escudo
+// generado — preferible a mostrar un logo equivocado.
+const CLUB_ESPN = {
+  // Argentina (confirmados)
+  river: 16, boca: 5, sanlo: 18,
+  // España
+  madrid: 86, barcelona: 83, atletico: 1068, sevilla: 243, betis: 244, realsociedad: 89,
+  villarreal: 102, athletic: 93, valencia: 94, girona: 9812, osasuna: 97, celta: 85,
+  getafe: 2922, mallorca: 84, rayo: 101, alaves: 96, laspalmas: 98, leganes: 17534,
+  valladolid: 95, espanyol: 88,
+  // Alemania
+  bayern: 132, dortmund: 124, leverkusen: 131, leipzig: 11420, stuttgart: 134, frankfurt: 125,
+  freiburg: 126, wolfsburg: 138, gladbach: 268, mainz: 2950, hoffenheim: 7911, bremen: 137,
+  augsburg: 3841, bochum: 121, heidenheim: 10469, stpauli: 269, holstein: 3390,
+  // Italia
+  inter: 110, milan: 103, juventus: 111, napoli: 114, roma: 104, lazio: 112, atalanta: 105,
+  fiorentina: 109, bologna: 107, torino: 2739, udinese: 115, genoa: 2891, monza: 5453,
+  lecce: 2807, cagliari: 2925, verona: 2900, parma: 116, como: 2919, empoli: 2749, venezia: 3057,
+  // Inglaterra
+  mancity: 382, arsenal: 359, liverpool: 364, chelsea: 363, mancity_utd: 360, tottenham: 367,
+  newcastle: 361, villa: 362, westham: 371, brighton: 331, bournemouth: 349, palace: 384,
+  fulham: 370, wolves: 380, everton: 368, brentford: 337, forest: 393, leicester: 375,
+  ipswich: 373, southampton: 376, leeds: 357, burnley: 379, sheffield: 398, sunderland: 366,
+  westbrom: 383, norwich: 381, middlesbrough: 369, coventry: 388,
+};
+
+function clubLogoUrl(id) {
+  const espnId = CLUB_ESPN[id];
+  if (!espnId) return null;
+  // CDN de ESPN (misma URL que usa su propia web). Logos oficiales, gratis, sin API key.
+  // Si falla, ClubLogo cae al escudo generado.
+  return `https://a.espncdn.com/combiner/i?img=/i/teamlogos/soccer/500/${espnId}.png&h=80&w=80`;
+}
+
+// Escudo generado (respaldo cuando no hay logo real o falla la carga)
+function CrestSVG({ id, name, size }) {
   const [bg, fg] = clubColors(id);
-  const initials = clubInitials(c.name);
+  const initials = clubInitials(name);
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" className="shrink-0" aria-hidden="true">
-      {/* escudo */}
       <path d="M20 2 L36 7 V20 C36 30 28 36 20 38 C12 36 4 30 4 20 V7 Z" fill={bg} stroke="rgba(0,0,0,0.25)" strokeWidth="1" />
       <path d="M20 2 L36 7 V20 C36 30 28 36 20 38 C12 36 4 30 4 20 V7 Z" fill="none" stroke={fg} strokeWidth="1.5" opacity="0.6" />
       <text x="20" y="24" textAnchor="middle" fontSize="13" fontWeight="800" fill={fg} fontFamily="system-ui, sans-serif">{initials}</text>
@@ -1455,11 +1573,35 @@ function ClubLogo({ id, size = 20 }) {
   );
 }
 
+function ClubLogo({ id, size = 20 }) {
+  const [failed, setFailed] = useState(false);
+  if (!id) return null;
+  const c = CLUBS.find((x) => x.id === id);
+  if (!c) return null;
+  const url = clubLogoUrl(id);
+  // si hay logo real y no falló la carga, lo mostramos; si no, el escudo generado
+  if (url && !failed) {
+    return (
+      <img
+        src={url}
+        alt={c.name}
+        width={size}
+        height={size}
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="shrink-0 object-contain rounded-sm"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return <CrestSVG id={id} name={c.name} size={size} />;
+}
+
 function Logo() {
   return (
     <div className="flex items-center justify-center gap-2 mb-4">
       <span className="bg-white text-black rounded-lg w-7 h-7 flex items-center justify-center text-sm font-black">⚽</span>
-      <span className="font-black text-xl tracking-tight">mi carrera</span>
+      <span className="font-black text-xl tracking-tight">Carrerarda</span>
     </div>
   );
 }
