@@ -248,6 +248,12 @@ function leagueCountry(league) {
 }
 const club = (id) => CLUBS.find((c) => c.id === id);
 
+// Etiqueta de fecha estilo diario ("DIC 2032"): fin de temporada, año que avanza.
+function mesDeTemporada(seasonNum) {
+  const year = 2025 + seasonNum;
+  return `DIC ${year}`;
+}
+
 // Cada rol envejece distinto: el delantero explota joven y decae rápido (vive de piernas),
 // el arquero madura tarde y dura hasta el final (vive de lectura de juego)
 function ageDelta(age, pos) {
@@ -312,6 +318,8 @@ function ovrTier(ovr) {
 const trainerCost = (s) => Math.round(s.wage * 0.4);
 const fisioCost = (s) => Math.round(s.wage * 0.35);
 const agentCost = (s) => Math.round(s.wage * 1.5);
+const pressCost = (s) => Math.round(s.wage * 0.6); // campaña de prensa: sube tu fama esa temporada
+const clauseCost = (s) => Math.round(s.wage * 2); // cláusula médica: baja el riesgo de lesión para siempre
 
 // Temporada mala (te avisan) vs desastrosa (te sueltan directo).
 // A un juvenil (20 o menos) se lo banca mucho más.
@@ -336,6 +344,74 @@ function loanOptions(state) {
     .map((x) => x.c);
   return weighted.slice(0, 3);
 }
+
+// ===== MOMENTOS DECISIVOS (#7) =====
+// Situaciones puntuales donde el jugador elige. El resultado es mitad OVR, mitad suerte.
+// Cada opción tiene una "dificultad" (risk): más difícil = más recompensa si sale, más costo si falla.
+const CLUTCH_MOMENTS = [
+  {
+    id: "penal_final", type: "pitch", emoji: "🥅",
+    title: "Penal en la definición",
+    setup: "Último minuto, penal para tu equipo en un partido clave. Agarrás la pelota. ¿Dónde la ponés?",
+    options: [
+      { label: "Al ángulo, imposible de atajar", risk: 0.35, reward: "big", desc: "Si le pegás bien es gol seguro, pero un error y la tirás afuera." },
+      { label: "Cruzado, colocado abajo", risk: 0.15, reward: "mid", desc: "La opción del crack: segura y efectiva." },
+      { label: "Picarla por el medio (Panenka)", risk: 0.5, reward: "huge", desc: "Si el arquero se tira, es un golazo de época. Si se queda, papelón." },
+    ],
+  },
+  {
+    id: "mano_a_mano", type: "pitch", emoji: "⚡",
+    title: "Mano a mano decisivo",
+    setup: "Quedaste solo frente al arquero en un momento caliente. Definís...",
+    options: [
+      { label: "Al primer palo, con potencia", risk: 0.25, reward: "big", desc: "Sorprendés al arquero si sos rápido." },
+      { label: "Amagar y cruzarla", risk: 0.3, reward: "big", desc: "Si le ganás el tiempo, gol tranquilo." },
+      { label: "Picársela por encima", risk: 0.45, reward: "huge", desc: "Sutileza total. Alto riesgo, alta recompensa." },
+    ],
+  },
+  {
+    id: "tiro_libre", type: "pitch", emoji: "🎯",
+    title: "Tiro libre al borde del área",
+    setup: "Falta peligrosa a la altura de la medialuna. La barrera se arma. Ya sabés qué querés hacer.",
+    options: [
+      { label: "Con comba al ángulo", risk: 0.4, reward: "big", desc: "El tiro de los especialistas." },
+      { label: "Rasante por debajo de la barrera", risk: 0.3, reward: "mid", desc: "Astuto y sorpresivo." },
+      { label: "Cederla para una jugada ensayada", risk: 0.15, reward: "mid", desc: "Menos glamour, más seguro." },
+    ],
+  },
+  {
+    id: "declaraciones", type: "off", emoji: "🎤",
+    title: "Micrófono caliente",
+    setup: "Un periodista te pregunta si estás a la altura de los grandes del club. La respuesta va a titular en todos lados.",
+    options: [
+      { label: "\"Vine a ser el mejor de acá\"", risk: 0.4, reward: "big", desc: "Te ponés la vara altísima: la hinchada te ama o te crucifica." },
+      { label: "\"Voy paso a paso, con humildad\"", risk: 0.1, reward: "mid", desc: "Nadie se enoja con la humildad." },
+      { label: "\"El equipo está por encima de todo\"", risk: 0.15, reward: "mid", desc: "Respuesta de líder de vestuario." },
+    ],
+  },
+  {
+    id: "renovacion", type: "off", emoji: "✍️",
+    title: "Oferta de renovación",
+    setup: "El club te ofrece renovar con una cláusula alta. Tu representante te pide una decisión.",
+    options: [
+      { label: "Exigir ser el mejor pago del plantel", risk: 0.45, reward: "big", desc: "Si el club banca, ganás respeto y plata. Si no, quedás mal parado." },
+      { label: "Renovar en buenos términos", risk: 0.1, reward: "mid", desc: "Todos contentos, relación sólida." },
+      { label: "Pedir tiempo para escuchar ofertas", risk: 0.35, reward: "big", desc: "Jugada de poder: puede abrir puertas o enfriar todo." },
+    ],
+  },
+  {
+    id: "capitania", type: "off", emoji: "©️",
+    title: "La cinta de capitán",
+    setup: "El técnico duda entre vos y un referente para la capitanía. Te pregunta en privado qué pensás.",
+    options: [
+      { label: "\"Estoy listo, déme la cinta\"", risk: 0.35, reward: "big", desc: "Asumís el peso. Si respondés, sos ídolo." },
+      { label: "\"Que la lleve el veterano\"", risk: 0.1, reward: "mid", desc: "Gesto de madurez que suma en el vestuario." },
+      { label: "\"Decidí usted, yo acompaño\"", risk: 0.15, reward: "mid", desc: "Dejás la pelota en su cancha." },
+    ],
+  },
+];
+
+const REWARD_VALUES = { mid: 0.4, big: 0.7, huge: 1.1 };
 
 // Hitos de carrera: se anuncian al cruzarlos
 const MILESTONE_DEFS = [
@@ -381,11 +457,13 @@ function legacyVerdict(state, peak) {
 // Riesgo de lesión: sube con la edad y con cada lesión previa (cuerpo castigado).
 // El fisio lo reduce un 85%. Exportado para mostrarlo en la carta de pretemporada.
 function injuryRisk(state, withFisio) {
-  const base = clamp(0.08 + Math.max(state.age - 26, 0) * 0.025 + (state.injuries || 0) * 0.04, 0.08, 0.4);
+  let base = clamp(0.08 + Math.max(state.age - 26, 0) * 0.025 + (state.injuries || 0) * 0.04, 0.08, 0.4);
+  // la cláusula médica (pago único) baja el riesgo de base para siempre
+  if (state.medicalClause) base *= 0.55;
   return withFisio ? base * 0.15 : base;
 }
 
-function playSeason(state) {
+function playSeason(state, clutchOutcome) {
   const c = club(state.clubId);
   const ovr = state.ovr;
   // hinchada en contra por la indirecta al clásico rival: menos minutos y presión
@@ -450,11 +528,16 @@ function playSeason(state) {
     rating = clamp(rf(5.4, 7.4) + (ovr - effReq) / 30 + (starter ? 0.3 : -0.3) - (state.angry ? 0.5 : 0), 4.5, 9.8);
   }
 
+  // El momento decisivo suma o resta al rating de la temporada según cómo te fue.
+  if (clutchOutcome) rating = clamp(rating + clutchOutcome.ratingDelta, 4.2, 10);
+
   // ¿Tu club sale campeón? Se compara con los demás de SU liga (no de todo el mundo)
   const leaguePeers = CLUBS.filter((x) => x.league === c.league);
   const leagueMax = Math.max(...leaguePeers.map((x) => x.prestige));
   // solo los que pelean arriba tienen chance real; el gap con el mejor manda
-  const titleChance = clamp(0.30 - (leagueMax - c.prestige) / 40, 0.01, 0.40);
+  let titleChance = clamp(0.30 - (leagueMax - c.prestige) / 40, 0.01, 0.40);
+  // un momento decisivo ganado en la cancha puede empujar el título
+  if (clutchOutcome?.titleBoost) titleChance = clamp(titleChance + clutchOutcome.titleBoost, 0.01, 0.75);
   const champion = Math.random() < titleChance;
 
   const prestigeBoost = 0.6 + (c.prestige / 100) * 0.9;
@@ -480,7 +563,10 @@ function playSeason(state) {
 // Selección nacional: te convocan si tu nivel da (más fácil con buen rating).
 // Cada 2 temporadas hay torneo: alterna Copa América y Mundial.
 function playNationalTeam(state, seasonRating) {
-  const convocado = state.ovr >= 73 && seasonRating >= 6.3 && state.age >= 18;
+  // la prensa/fama te pone en la consideración del DT: baja un poco la vara para ser convocado
+  const ovrReq = state.press ? 70 : 73;
+  const ratingReq = state.press ? 6.0 : 6.3;
+  const convocado = state.ovr >= ovrReq && seasonRating >= ratingReq && state.age >= 18;
   if (!convocado) return null;
   const isAtk = ["DC", "ED", "EI", "MCO"].includes(state.pos);
   const caps = Math.round(rf(4, 9));
@@ -518,6 +604,11 @@ function generateOffers(state, seasonRating, forced) {
     // memoria: si dejaste una buena relación en este club, hay más chance de que te vuelvan a llamar
     const bond = (state.clubBonds || {})[c.id] || 0;
     if (bond > 0) chance += bond * 0.12; // hasta +0.36 con relación máxima
+    // los clubes grandes (prestige alto) desconfían de un jugador muy propenso a lesiones.
+    // La cláusula médica los tranquiliza y evita esa penalización.
+    if ((state.injuries || 0) >= 3 && c.prestige >= 75 && !state.medicalClause) {
+      chance -= 0.25 + ((state.injuries || 0) - 3) * 0.05; // cuantas más lesiones, más recelo
+    }
     if (forced && c.tier <= current.tier) chance += 0.3; // los chicos te ven accesible
     if (!needsYourPos && !forced) chance *= 0.15; // no buscan tu puesto: casi imposible
     if (Math.random() < clamp(chance, 0.02, 0.9)) {
@@ -559,6 +650,8 @@ export default function App() {
   const [diarioKind, setDiarioKind] = useState("normal");
   const [celebration, setCelebration] = useState(null); // { title, subtitle, emoji } o null
   const [cantera, setCantera] = useState([]); // 3 clubes random que te ofrecen la cantera
+  const [clutch, setClutch] = useState(null); // momento decisivo pendiente { moment, pendingState }
+  const [clutchResult, setClutchResult] = useState(null); // resultado del momento para mostrar
 
   // Toda temporada termina en la tapa del diario; después se sigue a la pantalla que corresponda.
   // Si hubo un logro grande, primero mostramos una pantalla de festejo.
@@ -598,7 +691,7 @@ export default function App() {
       apellido: apellido.trim().toUpperCase() || "JUGADOR",
       numero, pierna, pos,
       age: START_AGE, ovr: 50, clubId: null, hintedClub: null,
-      money: 0, wage: 20000, agent: false, trainerBoost: false, fisio: false,
+      money: 0, wage: 20000, agent: false, trainerBoost: false, fisio: false, press: false, medicalClause: false,
       caps: 0, capGoals: 0, trophies: [], angry: false,
       parentClubId: null, loanYearsLeft: 0,
       duelPending: false, duelOfferClub: null, fightingDuel: false,
@@ -606,6 +699,7 @@ export default function App() {
       badStreak: 0, blockedClubs: {},
       injuries: 0, formative: [], idolo: false, homecomingDone: false, homeOffer: null,
       clubBonds: {},
+      clutchCooldown: 1,
       history: [],
     });
     setCantera(pickCantera());
@@ -619,8 +713,79 @@ export default function App() {
   }
 
   // Simula la temporada y decide qué pantalla sigue
+  // El jugador eligió una opción del momento decisivo. Mitad OVR, mitad suerte.
+  function chooseClutch(option) {
+    const s = clutch.pendingState;
+    const moment = clutch.moment;
+    // probabilidad de éxito: 50% viene de tu nivel, 50% de la suerte, menos la dificultad de la opción
+    const skill = clamp((s.ovr - 55) / 45, 0, 1); // 0 a 1 según OVR
+    const successChance = clamp(0.5 * skill + 0.5 * Math.random() - option.risk * 0.4 + 0.35, 0.05, 0.95);
+    const success = Math.random() < successChance;
+    const rewardVal = REWARD_VALUES[option.reward];
+
+    // Traducimos el resultado a modificadores de la temporada
+    let ratingDelta, titleBoost = 0, moneyDelta = 0, bondDelta = 0;
+    if (success) {
+      ratingDelta = rewardVal;                       // sube tu rendimiento del año
+      if (moment.type === "pitch") titleBoost = rewardVal * 0.12; // en la cancha, empuja el título
+      if (moment.id === "renovacion") moneyDelta = Math.round(s.wage * 0.5); // conseguiste mejor contrato
+      bondDelta = 1;                                  // quedás bien parado
+    } else {
+      ratingDelta = -rewardVal * 0.7;                 // fallar duele, pero menos de lo que sumaba
+      bondDelta = moment.type === "off" ? -1 : 0;     // meter la pata fuera de la cancha te deja mal
+    }
+
+    // aplicamos plata/relación al estado; el rating/título van al resolver de la temporada
+    let s2 = { ...s, clutchCooldown: 2 };
+    if (moneyDelta) s2 = { ...s2, money: s2.money + moneyDelta };
+    if (bondDelta && s2.clubId) {
+      const bonds = { ...(s2.clubBonds || {}) };
+      bonds[s2.clubId] = clamp((bonds[s2.clubId] || 0) + bondDelta, 0, 3);
+      s2 = { ...s2, clubBonds: bonds };
+    }
+
+    setClutchResult({
+      moment, option, success,
+      text: success ? clutchSuccessText(moment, option) : clutchFailText(moment, option),
+      resolved: { state: s2, outcome: { ratingDelta, titleBoost } },
+    });
+    setClutch(null);
+    setScreen("clutchResult");
+  }
+
+  // Textos de resultado del momento decisivo
+  function clutchSuccessText(moment, option) {
+    if (moment.type === "pitch") return "¡Saliste airoso! La jugada terminó como soñabas y el estadio explotó. Vas a ser noticia.";
+    return "Tu postura cayó perfecto. Ganaste autoridad y todos hablan bien de vos.";
+  }
+  function clutchFailText(moment, option) {
+    if (moment.type === "pitch") return "No salió. La jugada se te escapó en el peor momento y quedaste señalado.";
+    return "La movida te salió mal. Hubo ruido y quedaste un poco expuesto.";
+  }
+
+  function continueFromClutch() {
+    const resolved = clutchResult?.resolved;
+    setClutchResult(null);
+    setClutch(null);
+    if (resolved) resolveSeason(resolved.state, resolved.outcome);
+  }
+
   function runSeason(s) {
-    const season = playSeason(s);
+    // ¿Se dispara un momento decisivo? Cada par de temporadas como mucho, y solo si ya
+    // sos parte del equipo (no en tu primer año ni de muy pibe). Mitad del tiempo, para que sea especial.
+    const clutchReady = (s.clutchCooldown || 0) <= 0 && s.age >= 19 && s.history.length >= 1 && !s.parentClubId;
+    if (clutchReady && Math.random() < 0.5) {
+      const moment = CLUTCH_MOMENTS[Math.floor(Math.random() * CLUTCH_MOMENTS.length)];
+      setClutch({ moment, pendingState: s });
+      setScreen("clutch");
+      return;
+    }
+    resolveSeason(s, null);
+  }
+
+  // Resuelve la temporada. clutchOutcome puede traer un modificador del momento decisivo.
+  function resolveSeason(s, clutchOutcome) {
+    const season = playSeason(s, clutchOutcome);
     const natl = playNationalTeam(s, season.rating);
     const newTrophies = [];
     let prize = 0;
@@ -640,8 +805,10 @@ export default function App() {
       newTrophies.push({ name: season.intlCupName, clubId: s.clubId, age: s.age });
       prize += Math.round(s.wage * 0.8); // el torneo internacional paga como ninguno
     }
-    // Balón de Oro: solo para los mejores del mundo en un año brillante
-    const ballon = s.ovr >= 88 && season.rating >= 7.6 && Math.random() < clamp((s.ovr - 86) / 18, 0.05, 0.7);
+    // Balón de Oro: solo para los mejores del mundo en un año brillante.
+    // Una campaña de prensa te da visibilidad y empuja tu candidatura.
+    const ballonChance = clamp((s.ovr - 86) / 18 + (s.press ? 0.2 : 0), 0.05, 0.85);
+    const ballon = s.ovr >= 88 && season.rating >= 7.6 && Math.random() < ballonChance;
     if (ballon) {
       newTrophies.push({ name: "Balón de Oro", clubId: null, age: s.age });
       prize += Math.round(s.wage * 0.6);
@@ -710,9 +877,11 @@ export default function App() {
       hintReaction: null,
       trainerBoost: false,
       fisio: false,
+      press: false,
       angry: false, // la bronca de la hinchada dura una temporada
       fightingDuel: false,
       hintCooldown: Math.max((s.hintCooldown || 0) - 1, 0),
+      clutchCooldown: Math.max((s.clutchCooldown || 0) - 1, 0),
       history: [...s.history, entry],
     };
     // ¿Cruzaste algún hito histórico esta temporada?
@@ -850,6 +1019,14 @@ export default function App() {
     setScreen("pretemporada");
   }
 
+  // Riesgo de que el club retire la oferta si seguís negociando (crece con cada intento).
+  // Se usa tanto en la lógica como para colorear el botón.
+  function withdrawRiskFor(offer) {
+    const rounds = offer.negotiations || 0;
+    if (released && offers.length <= 1) return 0; // tu única salida forzada nunca se retira
+    return clamp(0.1 + rounds * 0.18 - (state.agent ? 0.1 : 0), 0, 0.7);
+  }
+
   function negotiate(offer, idx) {
     const c = club(offer.clubId);
     const rounds = offer.negotiations || 0; // cuántas veces ya negociaste esta oferta
@@ -857,7 +1034,7 @@ export default function App() {
     let chance = clamp(0.55 + (state.ovr - c.req) / 60 - rounds * 0.18, 0.1, 0.85);
     if (state.agent) chance = clamp(chance + 0.15, 0, 0.92);
     // riesgo de que retiren la oferta: crece con cada intento (nunca en tu única salida forzada)
-    const withdrawRisk = released && offers.length <= 1 ? 0 : clamp(0.1 + rounds * 0.18 - (state.agent ? 0.1 : 0), 0, 0.7);
+    const withdrawRisk = withdrawRiskFor(offer);
 
     if (Math.random() < withdrawRisk) {
       setOffers((prev) => prev.filter((_, i) => i !== idx));
@@ -897,6 +1074,8 @@ export default function App() {
     if (decision.trainer) { s = { ...s, money: s.money - trainerCost(s), trainerBoost: true }; }
     if (decision.fisio) { s = { ...s, money: s.money - fisioCost(s), fisio: true }; }
     if (decision.agent) { s = { ...s, money: s.money - agentCost(s), agent: true }; }
+    if (decision.press) { s = { ...s, money: s.money - pressCost(s), press: true }; }
+    if (decision.clause) { s = { ...s, money: s.money - clauseCost(s), medicalClause: true }; }
     setPendingHint(null);
     setState(s);
     runSeason(s);
@@ -1303,6 +1482,71 @@ export default function App() {
     );
   }
 
+  // --- MOMENTO DECISIVO: el jugador elige qué hacer ---
+  if (screen === "clutch" && clutch?.moment) {
+    const m = clutch.moment;
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <div className="anim-fade-up">
+            <div className="text-center mb-4">
+              <div className="text-6xl mb-3 anim-pop-in">{m.emoji}</div>
+              <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded ${m.type === "pitch" ? "bg-emerald-900 text-emerald-300" : "bg-sky-900 text-sky-300"}`}>
+                {m.type === "pitch" ? "Momento decisivo" : "Fuera de la cancha"}
+              </span>
+              <h1 className="text-2xl font-black mt-3">{m.title}</h1>
+              <p className="text-sm text-neutral-400 mt-2">{m.setup}</p>
+            </div>
+            <div className="space-y-2 mt-5">
+              {m.options.map((o, i) => (
+                <button key={i} onClick={() => chooseClutch(o)}
+                  className="w-full text-left bg-neutral-900 hover:bg-neutral-800 rounded-xl p-3.5 transition active:scale-[0.98] anim-fade-up border border-neutral-800"
+                  style={{ animationDelay: `${0.1 + i * 0.1}s` }}>
+                  <div className="flex justify-between items-center gap-2">
+                    <p className="font-bold text-sm">{o.label}</p>
+                    <span className={`text-[9px] uppercase font-bold shrink-0 px-1.5 py-0.5 rounded ${o.risk >= 0.4 ? "bg-red-950 text-red-400" : o.risk >= 0.25 ? "bg-amber-950 text-amber-400" : "bg-emerald-950 text-emerald-400"}`}>
+                      {o.risk >= 0.4 ? "Arriesgado" : o.risk >= 0.25 ? "Medio" : "Seguro"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-neutral-500 mt-1">{o.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+          <Footer />
+        </div>
+      </div>
+    );
+  }
+
+  // --- RESULTADO del momento decisivo ---
+  if (screen === "clutchResult" && clutchResult) {
+    const r = clutchResult;
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          {r.success && <Confetti />}
+          <div className="relative flex flex-col items-center justify-center text-center py-14">
+            <div className="text-7xl mb-4 anim-pop-in">{r.success ? "🌟" : "😞"}</div>
+            <p className={`text-[11px] uppercase tracking-[0.3em] mb-2 ${r.success ? "text-emerald-400" : "text-red-400"}`}>
+              {r.moment.title}
+            </p>
+            <h1 className={`text-3xl font-black leading-tight anim-pop-in ${r.success ? "text-emerald-200" : "text-red-200"}`}>
+              {r.success ? "¡LO LOGRASTE!" : "NO SALIÓ"}
+            </h1>
+            <p className="text-sm text-neutral-300 mt-3 max-w-xs">{r.text}</p>
+            <p className="text-xs text-neutral-500 mt-2 italic">Elegiste: {r.option.label}</p>
+            <button onClick={continueFromClutch}
+              className={`${S.btnPrimary} mt-10`} style={{ maxWidth: 260 }}>
+              Seguir con la temporada
+            </button>
+          </div>
+          <Footer />
+        </div>
+      </div>
+    );
+  }
+
   // --- TAPA DEL DIARIO: el titular de tu temporada ---
   if (screen === "diario") {
     const e = lastSeason;
@@ -1328,25 +1572,68 @@ export default function App() {
     else if (e.hintReaction?.type === "interesado") { head = "SUENA FUERTE"; sub = `${club(e.hintReaction.clubId).name} sigue de cerca a ${ap} después de sus palabras. El pase se calienta.`; }
     else if (e.warning) { head = "BAJO LA LUPA"; sub = `En ${c.name} pierden la paciencia con ${ap}. La próxima temporada define todo.`; }
     else { head = "OTRA VUELTA AL SOL"; sub = `Temporada ${e.rating >= 6.5 ? "correcta" : "irregular"} de ${ap} en ${c.name}: ${e.pj} partidos, rating ${e.rating}.`; }
+    // ¿Fue una temporada de gloria? (para darle el fondo festivo con confetti)
+    const glory = e.champion || e.wonIntlCup || e.wonNationalCup || e.ballon || e.natl?.torneo?.won;
+
+    // Repaso completo de la temporada: lista de todo lo que pasó, punto por punto.
+    const recap = [];
+    const statLine = state.pos === "POR"
+      ? `🧤 ${e.cleanSheets || 0} vallas invictas en ${e.pj} partidos.`
+      : `⚽ ${e.gls} goles y ${e.ast} asistencias en ${e.pj} partidos.`;
+    recap.push({ txt: statLine, tone: "info" });
+    if (e.champion) recap.push({ txt: `🏆 ¡CAMPEONES de la ${leagueShort(c.league).split(" · ")[1] || "Liga"} con ${c.name}!`, tone: "gold" });
+    if (e.wonIntlCup) recap.push({ txt: `🌎 ¡Campeón de la ${e.intlCupName}! Gloria continental.`, tone: "gold" });
+    else if (e.inIntlCup && e.intlPj > 0) recap.push({ txt: `🌎 ${e.intlCupName}: ${e.intlPj >= 10 ? "llegaste lejos" : "quedaste en el camino"}.`, tone: "info" });
+    if (e.wonNationalCup) recap.push({ txt: `🏆 ¡Ganaste la ${e.nationalCupName}! Otra para la vitrina.`, tone: "gold" });
+    if (e.ballon) recap.push({ txt: `✨ ¡Ganaste el Balón de Oro! El mejor del mundo.`, tone: "gold" });
+    if (e.natl) {
+      if (e.natl.torneo?.won) recap.push({ txt: `🏆 ¡Campeón de ${e.natl.torneo.name === "Mundial" ? "el Mundial" : "la " + e.natl.torneo.name} con la Selección!`, tone: "gold" });
+      else if (e.natl.torneo) recap.push({ txt: `📺 ${e.natl.torneo.name}: quedaste en el camino con la Selección.`, tone: "info" });
+      else recap.push({ txt: `🇦🇷 Convocado a la Selección: ${e.natl.caps} PJ${e.natl.goals > 0 ? `, ${e.natl.goals} goles` : ""}.`, tone: "info" });
+    }
+    (e.milestones || []).forEach((m) => recap.push({ txt: m, tone: "special" }));
+    if (e.duelResult === "won") recap.push({ txt: `🥊 Le ganaste el duelo al pibe: seguís siendo dueño del puesto.`, tone: "special" });
+    if (e.duelResult === "lost") recap.push({ txt: `🥊 El pibe te comió el puesto: pasaste el año en el banco.`, tone: "bad" });
+    if (e.hintReaction?.type === "interesado") recap.push({ txt: `🗣️ ${club(e.hintReaction.clubId).name} tomó nota de tu indirecta y te sigue de cerca.`, tone: "info" });
+    if (e.hintReaction?.type === "desmentido") recap.push({ txt: `🗣️ ${club(e.hintReaction.clubId).name} salió a aclarar que no estás en sus planes.`, tone: "bad" });
+    if (e.severeInjury) recap.push({ txt: `🚑 Lesión grave: la temporada quedó marcada por la recuperación.`, tone: "bad" });
+    else if (e.injured) recap.push({ txt: `🩹 Te lesionaste y te perdiste parte del año.`, tone: "bad" });
+    if (e.wasAngry) recap.push({ txt: `😡 La hinchada no te perdonó la indirecta al clásico: jugaste presionado.`, tone: "bad" });
+    if (e.warning) recap.push({ txt: `⚠️ En ${c.name} pierden la paciencia: la próxima define.`, tone: "bad" });
+
+    const toneColor = { gold: "text-amber-300", special: "text-violet-300", info: "text-neutral-300", bad: "text-red-300" };
+
     return (
       <div className={S.page}>
         <div className={S.card}>
-          <Logo />
-          <button onClick={() => setScreen(postDiario)} className="w-full text-left active:scale-[0.99] transition">
-            <div className="bg-neutral-100 text-black rounded-2xl overflow-hidden shadow-2xl">
-              <div className="flex items-center justify-between px-4 py-2 border-b-4 border-black">
-                <span className="font-black text-lg tracking-tighter">EL DEPORTIVO</span>
-                <span className="text-[10px] uppercase tracking-widest text-neutral-600">Temporada {e.age} años</span>
-              </div>
-              <div className="px-4 py-6">
-                <h1 className="font-black text-4xl leading-[0.95] tracking-tight" style={{ fontFamily: "Georgia, serif" }}>{head}</h1>
-                <p className="text-sm text-neutral-700 mt-3 leading-snug">{sub}</p>
-              </div>
-              <div className="px-4 pb-4 flex gap-3 text-[11px] text-neutral-500 border-t border-neutral-300 pt-2">
-                <span>{e.pj} PJ</span><span>{e.gls} goles</span><span>{e.ast} asist.</span><span>Rating {e.rating}</span><span className="ml-auto font-semibold text-black">Tocá para seguir →</span>
-              </div>
+          <div className="relative rounded-2xl overflow-hidden shadow-2xl bg-neutral-950 border border-neutral-800">
+            {glory && <Confetti />}
+            {/* Cabecera del diario */}
+            <div className="relative flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+              <span className="font-black text-lg tracking-tight text-red-500" style={{ fontFamily: "Georgia, serif" }}>EL DEPORTIVO</span>
+              <span className="text-[10px] uppercase tracking-widest text-neutral-500">{mesDeTemporada(state.history.length)} · Temporada {state.history.length}</span>
             </div>
-          </button>
+            {/* Titular principal */}
+            <div className="relative px-4 pt-5 pb-3">
+              <h1 className="font-black text-4xl leading-[0.95] tracking-tight text-white" style={{ fontFamily: "Georgia, serif" }}>{head}</h1>
+              <p className="text-sm text-neutral-400 mt-3 leading-snug">{sub}</p>
+            </div>
+            {/* Repaso completo de la temporada */}
+            <div className="relative px-4 pb-4 space-y-2">
+              {recap.map((r, i) => (
+                <div key={i} className="flex gap-2 border-l-2 border-neutral-700 pl-3 anim-fade-up" style={{ animationDelay: `${0.05 + i * 0.07}s` }}>
+                  <p className={`text-sm leading-snug ${toneColor[r.tone]}`}>{r.txt}</p>
+                </div>
+              ))}
+            </div>
+            {/* Pie con el club y botón de seguir */}
+            <button onClick={() => setScreen(postDiario)} className="relative w-full flex items-center justify-between px-4 py-3 border-t border-neutral-800 bg-neutral-900/50 active:bg-neutral-900 transition">
+              <span className="flex items-center gap-2 text-xs text-neutral-400">
+                <ClubLogo id={e.clubId} size={18} /> {c.name}
+              </span>
+              <span className="text-xs font-semibold text-white">Seguir →</span>
+            </button>
+          </div>
           <Footer />
         </div>
       </div>
@@ -1464,9 +1751,19 @@ export default function App() {
                     </div>
                     <div className="flex gap-2">
                       <button className="flex-1 bg-white text-black rounded-full py-2 text-sm font-semibold active:scale-95" onClick={() => chooseClub(o)}>Fichar</button>
-                      <button className="flex-1 bg-amber-500 text-amber-950 rounded-full py-2 text-sm font-semibold active:scale-95 hover:bg-amber-400" onClick={() => negotiate(o, idx)}>
-                        Negociar{o.negotiations ? ` (${o.negotiations})` : ""}
-                      </button>
+                      {(() => {
+                        const risk = withdrawRiskFor(o);
+                        // el botón se "calienta" según el riesgo de que retiren la oferta
+                        const tier = risk >= 0.5 ? "bg-red-600 text-white hover:bg-red-500"
+                          : risk >= 0.35 ? "bg-red-500 text-white hover:bg-red-400"
+                          : risk >= 0.2 ? "bg-orange-500 text-orange-950 hover:bg-orange-400"
+                          : "bg-amber-500 text-amber-950 hover:bg-amber-400";
+                        return (
+                          <button className={`flex-1 rounded-full py-2 text-sm font-semibold active:scale-95 transition-colors ${tier}`} onClick={() => negotiate(o, idx)}>
+                            Negociar{o.negotiations ? ` · ${Math.round(risk * 100)}% riesgo` : ""}
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -1496,6 +1793,9 @@ export default function App() {
     const canTrainer = state.money >= trainerCost(state);
     const canFisio = state.money >= fisioCost(state);
     const canAgent = !state.agent && state.money >= agentCost(state);
+    const canPress = state.money >= pressCost(state);
+    const canClause = !state.medicalClause && state.money >= clauseCost(state);
+    const injuryProne = (state.injuries || 0) >= 3; // te ofrecemos la cláusula si venís golpeado
     return (
       <div className={S.page}>
         <div className={S.card}>
@@ -1516,11 +1816,23 @@ export default function App() {
                 desc={`Baja tu riesgo de lesión del ${Math.round(injuryRisk(state, false) * 100)}% al ${Math.round(injuryRisk(state, true) * 100)}% este año${state.age >= 28 ? ", y frena la caída de OVR por la edad." : "."}${state.injuries > 0 ? ` Ya llevás ${state.injuries} lesi${state.injuries === 1 ? "ón" : "ones"}: tu cuerpo lo necesita.` : ""}`}
                 onClick={() => invest({ fisio: true })}
               />
+              <DecisionCard
+                title="📣 Campaña de prensa" cost={fmtMoney(pressCost(state))} disabled={!canPress}
+                desc="Contratás prensa para agrandar tu figura este año: más chances de ser convocado a la Selección y de pelear el Balón de Oro. Puro ego."
+                onClick={() => invest({ press: true })}
+              />
               {!state.agent && (
                 <DecisionCard
                   title="🕴️ Agente de élite" cost={fmtMoney(agentCost(state))} disabled={!canAgent}
                   desc="Se paga una sola vez y queda para siempre: vas a recibir más ofertas de fichaje y a negociar mejores sueldos toda tu carrera."
                   onClick={() => invest({ agent: true })}
+                />
+              )}
+              {injuryProne && !state.medicalClause && (
+                <DecisionCard
+                  title="🏥 Cláusula médica" cost={fmtMoney(clauseCost(state))} disabled={!canClause}
+                  desc="Un plan médico permanente: baja tu riesgo de lesión para el resto de tu carrera y tranquiliza a los clubes grandes, que dejan de desconfiar de tu físico."
+                  onClick={() => invest({ clause: true })}
                 />
               )}
               <DecisionCard
