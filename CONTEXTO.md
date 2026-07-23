@@ -106,7 +106,18 @@ Creación de personaje, 137 clubes reales, loop de temporadas, OVR por club/edad
 Confetti + vibración para títulos/Mundial/Copa/Balón de Oro, banner rojo animado para lesiones, animaciones de entrada escalonadas (keyframes en `index.css`, respeta `prefers-reduced-motion`).
 
 ### Logos de clubes
-Escudos SVG generados (iniciales + colores) como base. Se intentó logos reales: Google favicons falló (devolvía favicon genérico). Se pasó a **ESPN CDN** (`a.espncdn.com/combiner/i?img=/i/teamlogos/soccer/500/{id}.png&h=80&w=80`). **Solo IDs verificados** en `CLUB_ESPN` (River=16, Boca=5, SanLo=18, + grandes europeos estándar de industria). Clubes sin ID verificado usan el escudo generado (fallback vía `onError`). ⚠️ Los IDs de clubes chicos argentinos/colombianos NO están (los inventados daban logos equivocados, ej. Belgrano mostraba bandera de Malasia).
+Escudos SVG generados (iniciales + colores) como respaldo (`CrestSVG`, fallback vía `onError`). Se intentó logos reales con Google favicons (falló, devolvía favicon genérico) y después con ESPN CDN (funcionaba pero dependía de un tercero y solo tenía IDs verificados para clubes grandes).
+
+**Resuelto (pendiente #1 del roadmap): base de datos propia de escudos.** Ignacio bajó ZIPs de escudos reales (carpeta local `Escudos/`, ignorada en git — no se versiona, pesa ~21MB crudo). Se extrajeron, se mapearon 113 de los 137 clubes a su archivo, se redimensionaron a 160×160 (estaban en ~1500×1500) y se guardaron en `public/logos/{id}.png` (~1.2MB total). `clubLogoUrl(id)` en `App.jsx` devuelve simplemente `` `${import.meta.env.BASE_URL}logos/${id}.png` `` — ya no hay diccionario de IDs que mantener; para sumar un club alcanza con poner el PNG con el nombre exacto del `id`, sin tocar código. `ClubLogo` sigue cayendo al escudo generado si el archivo no existe o falla la carga.
+
+Quedan **24 clubes sin escudo real** (usan el generado) porque no vinieron en los ZIPs descargados:
+- España (5): girona, mallorca, laspalmas, leganes, valladolid
+- Alemania (5): wolfsburg, bochum, heidenheim, stpauli, holstein
+- Italia (2): verona, empoli
+- Inglaterra Premier (4): westham, wolves, leicester, southampton
+- Inglaterra Championship (8): burnley, sheffield, westbrom, norwich, middlesbrough, watford, bristol, cardiff
+
+Para completarlos: conseguir el PNG del escudo y guardarlo como `public/logos/{id}.png` (ver `id` exacto en el array `CLUBS`).
 
 ### Cancha de fondo
 En la pantalla de elegir posición, cancha SVG (césped con franjas, áreas, círculo central, línea media) con botones translúcidos encima.
@@ -152,12 +163,12 @@ Helper `withdrawRiskFor(offer)`. Botón cambia de color por tier: ámbar (<0.2) 
 
 ## 7. PENDIENTES / IDEAS A FUTURO
 
-### Del roadmap original de amigos (quedan 2, ambas son laburo de imágenes)
-- **#1 — Base de datos propia de logos.** Ignacio prefiere hostear sus propios SVG (como hace Copero con `media.copero.com.ar`) en vez de depender de ESPN. Es la solución "posta" pero grande: conseguir/crear ~137 escudos SVG y ponerlos en `public/logos/` para servirlos desde el propio Vercel. Ventaja: control total, sin depender de terceros, sin problemas de derechos con logos reales de clubes.
-- **#14 — Imágenes reales de las copas**, que se distingan cuáles son (Libertadores vs Champions vs copas nacionales). Similar: hay que conseguir/crear las imágenes.
+### Del roadmap original de amigos (queda 1, es laburo de imágenes)
+- **#1 — Base de datos propia de logos. ✅ HECHO** (ver sección 5, "Logos de clubes"). 113/137 clubes con escudo real en `public/logos/`; quedan 24 clubes chicos sin archivo (lista en sección 5) que siguen con el escudo generado.
+- **#14 — Imágenes reales de las copas**, que se distingan cuáles son (Libertadores vs Champions vs copas nacionales). Hay que conseguir/crear las imágenes.
 
 ### Otras ideas mencionadas
-- Verificar/agregar IDs correctos de ESPN para clubes argentinos medianos y colombianos (hoy usan escudo generado).
+- Conseguir los 24 escudos que faltan (lista en sección 5) para completar la base de logos.
 - Renombrar "Nivel"/"Desarrollo" a algo más claro si se le ocurre algo mejor (quedó en "Nivel").
 - Considerar: capturas al README (la cancha, el diario, la tarjeta de carrera se ven bien) + URL de Vercel arriba con "🎮 Jugar ahora".
 

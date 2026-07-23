@@ -8,3 +8,7 @@ dist-ssr
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Descargas crudas de escudos (ZIPs + extraídos). Los que se usan ya están
+# procesados y versionados en public/logos/.
+/Escudos/

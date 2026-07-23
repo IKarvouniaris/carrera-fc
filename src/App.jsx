@@ -2120,41 +2120,12 @@ function clubInitials(name) {
   return clean.slice(0, 3).toUpperCase();
 }
 
-// Dominios oficiales de los clubes para traer el logo real vía servicio de logos.
-// Si un club no está acá o la imagen falla, se usa el escudo generado como respaldo.
-// IDs de equipo de ESPN VERIFICADOS para traer el logo oficial desde su CDN.
-// Solo incluimos clubes con ID confirmado. Los que no están acá usan el escudo
-// generado — preferible a mostrar un logo equivocado.
-const CLUB_ESPN = {
-  // Argentina (confirmados)
-  river: 16, boca: 5, sanlo: 18,
-  // España
-  madrid: 86, barcelona: 83, atletico: 1068, sevilla: 243, betis: 244, realsociedad: 89,
-  villarreal: 102, athletic: 93, valencia: 94, girona: 9812, osasuna: 97, celta: 85,
-  getafe: 2922, mallorca: 84, rayo: 101, alaves: 96, laspalmas: 98, leganes: 17534,
-  valladolid: 95, espanyol: 88,
-  // Alemania
-  bayern: 132, dortmund: 124, leverkusen: 131, leipzig: 11420, stuttgart: 134, frankfurt: 125,
-  freiburg: 126, wolfsburg: 138, gladbach: 268, mainz: 2950, hoffenheim: 7911, bremen: 137,
-  augsburg: 3841, bochum: 121, heidenheim: 10469, stpauli: 269, holstein: 3390,
-  // Italia
-  inter: 110, milan: 103, juventus: 111, napoli: 114, roma: 104, lazio: 112, atalanta: 105,
-  fiorentina: 109, bologna: 107, torino: 2739, udinese: 115, genoa: 2891, monza: 5453,
-  lecce: 2807, cagliari: 2925, verona: 2900, parma: 116, como: 2919, empoli: 2749, venezia: 3057,
-  // Inglaterra
-  mancity: 382, arsenal: 359, liverpool: 364, chelsea: 363, mancity_utd: 360, tottenham: 367,
-  newcastle: 361, villa: 362, westham: 371, brighton: 331, bournemouth: 349, palace: 384,
-  fulham: 370, wolves: 380, everton: 368, brentford: 337, forest: 393, leicester: 375,
-  ipswich: 373, southampton: 376, leeds: 357, burnley: 379, sheffield: 398, sunderland: 366,
-  westbrom: 383, norwich: 381, middlesbrough: 369, coventry: 388,
-};
-
+// Base de datos propia de escudos: PNG 160x160 en public/logos/{id}.png.
+// No todos los clubes tienen archivo todavía; si no existe o falla la carga,
+// ClubLogo cae al escudo generado (CrestSVG). Para sumar un club solo hace
+// falta poner public/logos/{id}.png con ese nombre exacto, sin tocar código.
 function clubLogoUrl(id) {
-  const espnId = CLUB_ESPN[id];
-  if (!espnId) return null;
-  // CDN de ESPN (misma URL que usa su propia web). Logos oficiales, gratis, sin API key.
-  // Si falla, ClubLogo cae al escudo generado.
-  return `https://a.espncdn.com/combiner/i?img=/i/teamlogos/soccer/500/${espnId}.png&h=80&w=80`;
+  return `${import.meta.env.BASE_URL}logos/${id}.png`;
 }
 
 // Escudo generado (respaldo cuando no hay logo real o falla la carga)
