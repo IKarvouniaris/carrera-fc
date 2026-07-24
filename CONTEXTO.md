@@ -149,6 +149,25 @@ Helper `withdrawRiskFor(offer)`. Botón cambia de color por tier: ámbar (<0.2) 
 - **Momentos por posición**: arquero recibe momentos gk (atajar penal, salida) en vez de tirar libres. Campo `pos` en cada momento.
 - **Indirectas sin filtro**: `hintTargets` ya no filtra por tier/nivel (podés tirarle a cualquier club). Si les sobrás (interesado + ovr-req≥6), te dan el mejor contrato (wageMult 0.14-0.18) con badge "🔥 Te quieren sí o sí: contratón".
 
+### Selección nacional por fases
+`TOURNAMENT_ROUNDS` (grupos 3PJ + octavos/cuartos/semis/final 1PJ c/u). `playNationalTeam` simula el torneo ronda por ronda: los `caps` de la temporada surgen de sumar los partidos realmente jugados (nunca un número inflado/desconectado del resultado), y devuelve `eliminatedAt` para el mensaje de en qué fase quedaste afuera (`torneoResultText`). Caps por año de torneo quedan siempre entre ~5-12.
+
+### Copas internacionales de clubes por fases + Sudamericana/Europa League
+`CLUB_CUP_ROUNDS` (primary: Libertadores/Champions, 6+2+2+2+1 PJ; secondary: Sudamericana/Europa League, 4+2+2+2+1 PJ). `simClubCupRun(prestige, ovr, injuredThisSeason, tier)` simula ronda por ronda: mezcla tu OVR, el prestigio del club, si te lesionaste esa temporada, y un factor suerte MÁS ANCHO cuanto más chico es el club. `intlTier`: `"primary"` si prestige≥68 (Libertadores/Champions), `"secondary"` si 50≤prestige<68 (Sudamericana/Europa League, con bonus de calidad +0.12 por ser competencia más floja), sin copa internacional si prestige<50. `clubCupResultText()` genera el mensaje de fase de eliminación o subcampeón, usado tanto en el diario como en el resumen de mercado. River/Boca o un grande europeo con crack (ovr 88+) sin lesionarse: ~29-31% de ganar la copa grande; club recién clasificado: ~2.7%. Premio: 0.8×wage (primary) / 0.45×wage (secondary).
+
+### Lesiones recortadas
+`injuryRisk` bajó su curva base: `clamp(0.06 + edad_sobre_26×0.017 + lesiones_previas×0.025, 0.06, 0.26)` (antes 0.08-0.4). Ej. sin fisio: 22 años sano 8%→6%, 36 años con 3 lesiones 40%→26%.
+
+### Ligue 1 (Francia) — nueva liga
+18 clubes agregados a `CLUBS` (PSG tier5 prestige 96 hasta Le Mans tier2 prestige 28). `LEAGUE_MATCHES.FRA=34`, `NATIONAL_CUP.FRA="Copa de Francia"`, Champions/Europa League igual que el resto de Europa. Clásico PSG-Marsella en `RIVALS`. Valores de tier/req/prestige son estimaciones futbolísticas, ajustables si se sienten mal jugando.
+
+### Fichar con condiciones
+Botón "📋 Fichar con condiciones" en cada oferta del mercado (además de "Fichar" y "Negociar") → pantalla nueva (`screen === "condiciones"`) con 3 paquetes a elegir (una sola decisión, sin negociación de ida y vuelta):
+- **Cláusula blindada**: wage ×0.94, cláusula = valorDeMercado×2.2 (`state.clauseAmount`/`clauseClubId`). Mientras estés en ese club, `generateOffers` te da menos ofertas curiosas (-0.15 chance) pero mejor pagas si igual te compran (wage ×1.15).
+- **Objetivos de rendimiento**: wage ×0.95, bono si rating≥6.8 en la PRIMERA temporada del contrato (`state.performanceObjective`, se evalúa una vez y se borra). Bono = wage×0.35 si se cumple.
+- **Todo o nada**: combina ambas, wage ×0.88, cláusula ×2.6, objetivo rating≥7.0 → bono ×0.55.
+Resultado del objetivo (cumplido o no) se muestra en el diario (`recap`) y en el resumen de mercado (`notices`).
+
 ---
 
 ## 6. COSTOS ECONÓMICOS ACTUALES (referencia de balance)
@@ -157,14 +176,15 @@ Helper `withdrawRiskFor(offer)`. Botón cambia de color por tier: ámbar (<0.2) 
 - Campaña de prensa: `wage × 0.6`
 - Agente de élite: `wage × 1.5` (permanente)
 - Cláusula médica: `wage × 2` (permanente, solo si injuries≥3)
-- Premios: campeón liga 0.5×wage, copa nacional 0.35×wage, copa internacional 0.8×wage, selección 0.4×wage, Balón de Oro 0.6×wage.
+- Premios: campeón liga 0.5×wage, copa nacional 0.35×wage, copa internacional primary 0.8×wage / secondary (Sudamericana/Europa League) 0.45×wage, selección 0.4×wage, Balón de Oro 0.6×wage, objetivo de rendimiento pactado al fichar 0.35-0.55×wage (ver "Fichar con condiciones").
+- Fichar con condiciones (sección 5): cláusula blindada wage×0.94, objetivos wage×0.95, todo o nada wage×0.88.
 
 ---
 
 ## 7. PENDIENTES / IDEAS A FUTURO
 
 ### Del roadmap original de amigos (queda 1, es laburo de imágenes)
-- **#1 — Base de datos propia de logos. ✅ HECHO** (ver sección 5, "Logos de clubes"). 113/137 clubes con escudo real en `public/logos/`; quedan 24 clubes chicos sin archivo (lista en sección 5) que siguen con el escudo generado.
+- **#1 — Base de datos propia de logos. ✅ HECHO** (ver sección 5, "Logos de clubes"). 124/137 clubes con escudo real en `public/logos/`; quedan 13 sin archivo (Leicester + 5 de España + 5 de Alemania + 2 de Italia) que siguen con el escudo generado.
 - **#14 — Imágenes reales de las copas**, que se distingan cuáles son (Libertadores vs Champions vs copas nacionales). Hay que conseguir/crear las imágenes.
 
 ### Otras ideas mencionadas

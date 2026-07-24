@@ -155,6 +155,24 @@ const CLUBS = [
   { id: "pereira", name: "Dep. Pereira", league: "Primera A (COL)", tier: 2, req: 60, prestige: 46 },
   { id: "pasto", name: "Dep. Pasto", league: "Primera A (COL)", tier: 2, req: 58, prestige: 42 },
   { id: "aguilas", name: "Águilas Doradas", league: "Primera A (COL)", tier: 2, req: 58, prestige: 42 },
+  { id: "psg", name: "Paris Saint-Germain", league: "Ligue 1 (FRA)", tier: 5, req: 85, prestige: 96 },
+  { id: "marseille", name: "Olympique de Marsella", league: "Ligue 1 (FRA)", tier: 4, req: 76, prestige: 79 },
+  { id: "monaco", name: "Mónaco", league: "Ligue 1 (FRA)", tier: 4, req: 76, prestige: 78 },
+  { id: "lyon", name: "Olympique de Lyon", league: "Ligue 1 (FRA)", tier: 4, req: 74, prestige: 75 },
+  { id: "lille", name: "Lille", league: "Ligue 1 (FRA)", tier: 4, req: 73, prestige: 73 },
+  { id: "brest", name: "Brest", league: "Ligue 1 (FRA)", tier: 4, req: 68, prestige: 64 },
+  { id: "nice", name: "Niza", league: "Ligue 1 (FRA)", tier: 4, req: 71, prestige: 68 },
+  { id: "lens", name: "Lens", league: "Ligue 1 (FRA)", tier: 4, req: 70, prestige: 66 },
+  { id: "rennes", name: "Rennes", league: "Ligue 1 (FRA)", tier: 4, req: 68, prestige: 63 },
+  { id: "strasbourg", name: "Estrasburgo", league: "Ligue 1 (FRA)", tier: 3, req: 65, prestige: 58 },
+  { id: "toulouse", name: "Toulouse", league: "Ligue 1 (FRA)", tier: 3, req: 63, prestige: 54 },
+  { id: "auxerre", name: "Auxerre", league: "Ligue 1 (FRA)", tier: 3, req: 60, prestige: 48 },
+  { id: "angers", name: "Angers", league: "Ligue 1 (FRA)", tier: 3, req: 59, prestige: 45 },
+  { id: "lorient", name: "Lorient", league: "Ligue 1 (FRA)", tier: 3, req: 59, prestige: 44 },
+  { id: "parisfc", name: "Paris FC", league: "Ligue 1 (FRA)", tier: 3, req: 55, prestige: 40 },
+  { id: "havre", name: "Le Havre", league: "Ligue 1 (FRA)", tier: 2, req: 55, prestige: 38 },
+  { id: "troyes", name: "Troyes", league: "Ligue 1 (FRA)", tier: 2, req: 50, prestige: 30 },
+  { id: "lemans", name: "Le Mans", league: "Ligue 1 (FRA)", tier: 2, req: 48, prestige: 28 },
 ];
 
 // Clásicos: tirarle una indirecta al rival de tu club enfurece a tu hinchada
@@ -180,6 +198,7 @@ const RIVALS = {
   america_cali: "cali", cali: "america_cali",
   sevilla: "betis", betis: "sevilla",
   athletic: "realsociedad", realsociedad: "athletic",
+  psg: "marseille", marseille: "psg",
 };
 
 // Clubes que pueden ofrecerte la cantera: argentinos de las tres primeras categorías,
@@ -229,23 +248,23 @@ function leagueShort(league) {
 
 // Partidos oficiales de liga por país (aprox. reales). El resto de competiciones se suman aparte.
 const LEAGUE_MATCHES = {
-  ARG: 30, ESP: 38, GER: 34, ITA: 38, ENG: 38, COL: 32,
+  ARG: 30, ESP: 38, GER: 34, ITA: 38, ENG: 38, COL: 32, FRA: 34,
 };
 // Copa nacional de cada país (nombre real).
 const NATIONAL_CUP = {
   ARG: "Copa Argentina", ESP: "Copa del Rey", GER: "DFB-Pokal",
-  ITA: "Coppa Italia", ENG: "FA Cup", COL: "Copa Colombia",
+  ITA: "Coppa Italia", ENG: "FA Cup", COL: "Copa Colombia", FRA: "Copa de Francia",
 };
 // Torneo internacional principal según la confederación del país.
 const INTL_CUP = {
   ARG: "Copa Libertadores", COL: "Copa Libertadores",
-  ESP: "Champions League", GER: "Champions League", ITA: "Champions League", ENG: "Champions League",
+  ESP: "Champions League", GER: "Champions League", ITA: "Champions League", ENG: "Champions League", FRA: "Champions League",
 };
 // Torneo internacional secundario: para clubes que no llegan al de arriba pero sí son
 // lo bastante grandes para jugar copa internacional "chica".
 const SECOND_INTL_CUP = {
   ARG: "Copa Sudamericana", COL: "Copa Sudamericana",
-  ESP: "Europa League", GER: "Europa League", ITA: "Europa League", ENG: "Europa League",
+  ESP: "Europa League", GER: "Europa League", ITA: "Europa League", ENG: "Europa League", FRA: "Europa League",
 };
 // Devuelve el código de país (ARG, ESP…) a partir del nombre de liga.
 function leagueCountry(league) {
@@ -706,6 +725,9 @@ function torneoResultText(t) {
 function generateOffers(state, seasonRating, forced) {
   const current = club(state.clubId);
   const offers = [];
+  // Cláusula de rescisión activa en tu club actual (ver "fichar con condiciones"): cuesta más
+  // sacarte de ahí (menos ofertas), pero si alguien la paga, lo hace por encima de lo normal.
+  const hasClause = !forced && state.clauseClubId === state.clubId && (state.clauseAmount || 0) > 0;
   CLUBS.forEach((c) => {
     if (c.id === state.clubId) return;
     if ((state.blockedClubs || {})[c.id] > 0) return; // te soltaron: están resentidos
@@ -732,11 +754,13 @@ function generateOffers(state, seasonRating, forced) {
     }
     if (forced && c.tier <= current.tier) chance += 0.3; // los chicos te ven accesible
     if (!needsYourPos && !forced) chance *= 0.15; // no buscan tu puesto: casi imposible
+    if (hasClause) chance -= 0.15; // tu cláusula frena a los curiosos
     if (Math.random() < clamp(chance, 0.02, 0.9)) {
       let wageMult = rf(0.08, 0.12) * (forced ? 0.8 : 1);
       // Si le tiraste una indirecta a este club y les sobrás de nivel, te quieren sí o sí:
       // te tiran el mejor contrato posible para convencerte de que vengas.
       if (reaction === "interesado" && state.ovr - c.req >= 6) wageMult = rf(0.14, 0.18);
+      if (hasClause) wageMult *= 1.15; // el que la paga, la paga de más
       const wage = Math.round(marketValue(state.ovr, state.age, state.pos) * wageMult);
       offers.push({ clubId: c.id, wage, negotiated: false, returning: bond > 0, courting: reaction === "interesado" && state.ovr - c.req >= 6 });
     }
@@ -771,6 +795,7 @@ export default function App() {
   const [released, setReleased] = useState(false);
   const [negMsg, setNegMsg] = useState(null);
   const [renewal, setRenewal] = useState(null); // { offer, rounds, msg } oferta de renovación de tu club
+  const [conditionsOffer, setConditionsOffer] = useState(null); // oferta en la mesa de "fichar con condiciones"
   const [pendingHint, setPendingHint] = useState(null); // indirecta elegida (opcional) antes de la acción
   const [postDiario, setPostDiario] = useState(null); // pantalla que sigue después de la tapa del diario
   const [diarioKind, setDiarioKind] = useState("normal");
@@ -826,6 +851,7 @@ export default function App() {
       injuries: 0, formative: [], idolo: false, homecomingDone: false, homeOffer: null,
       clubBonds: {},
       clutchCooldown: 1,
+      clauseAmount: 0, clauseClubId: null, performanceObjective: null,
       history: [],
     });
     setCantera(pickCantera());
@@ -945,6 +971,17 @@ export default function App() {
       newTrophies.push({ name: "Balón de Oro", clubId: null, age: s.age });
       prize += Math.round(s.wage * 0.6);
     }
+    // Objetivo de rendimiento pactado al fichar (ver "fichar con condiciones"): se evalúa
+    // una sola vez, en la primera temporada del contrato, y después se borra.
+    let objectiveResult = null;
+    if (s.performanceObjective) {
+      const met = season.rating >= s.performanceObjective.ratingTarget;
+      objectiveResult = { met, ratingTarget: s.performanceObjective.ratingTarget };
+      if (met) {
+        objectiveResult.bonus = Math.round(s.wage * s.performanceObjective.bonusPct);
+        prize += objectiveResult.bonus;
+      }
+    }
 
     // ¿Hubo un logro grande para festejar? Se calcula una sola vez y se pasa a cualquier
     // camino que siga (mercado, préstamo, retiro, etc.) para que el festejo nunca se pierda.
@@ -985,6 +1022,7 @@ export default function App() {
       wonNationalCup: season.wonNationalCup, nationalCupName: season.nationalCupName,
       wonIntlCup: season.wonIntlCup, intlCupName: season.intlCupName, intlTier: season.intlTier,
       inIntlCup: season.inIntlCup, intlEliminatedAt: season.intlEliminatedAt,
+      objectiveResult,
     };
     // los clubes resentidos se van olvidando de a poco
     const cooledBlocked = {};
@@ -1019,6 +1057,7 @@ export default function App() {
       press: false,
       angry: false, // la bronca de la hinchada dura una temporada
       fightingDuel: false,
+      performanceObjective: null, // se evalúa una sola vez, en la primera temporada del contrato
       hintCooldown: Math.max((s.hintCooldown || 0) - 1, 0),
       clutchCooldown: Math.max((s.clutchCooldown || 0) - 1, 0),
       history: [...s.history, entry],
@@ -1150,13 +1189,29 @@ export default function App() {
     setScreen("pretemporada");
   }
 
-  // MERCADO: elegir club (o quedarse, si no te soltaron)
-  function chooseClub(offer) {
-    const next = offer ? { ...state, clubId: offer.clubId, wage: offer.wage, badStreak: 0 } : state;
+  // MERCADO: elegir club (o quedarse, si no te soltaron). "conditions" es opcional: viene de la
+  // pantalla de "fichar con condiciones" (cláusula de rescisión y/o objetivo de rendimiento).
+  function chooseClub(offer, conditions) {
+    const next = offer ? {
+      ...state,
+      clubId: offer.clubId,
+      wage: conditions ? Math.round(offer.wage * conditions.wageMult) : offer.wage,
+      badStreak: 0,
+      clauseAmount: conditions?.clauseMult ? Math.round(marketValue(state.ovr, state.age, state.pos) * conditions.clauseMult) : 0,
+      clauseClubId: conditions?.clauseMult ? offer.clubId : null,
+      performanceObjective: conditions?.objective || null,
+    } : state;
     setState(next);
     setOffers([]);
     setRenewal(null);
+    setConditionsOffer(null);
     setScreen("pretemporada");
+  }
+
+  // Abre la mesa de negociación de condiciones para una oferta puntual (pantalla aparte).
+  function openConditions(offer) {
+    setConditionsOffer(offer);
+    setScreen("condiciones");
   }
 
   // Aceptar la renovación: te quedás en tu club con el nuevo sueldo.
@@ -1454,6 +1509,8 @@ export default function App() {
       t: torneoResultText(lastSeason.natl.torneo),
     });
     if (lastSeason.ballon) notices.push({ c: "text-yellow-300 font-semibold", t: "✨ ¡Ganaste el Balón de Oro! Sos el mejor jugador del mundo." });
+    if (lastSeason.objectiveResult?.met) notices.push({ c: "text-violet-300 font-semibold", t: `🎯 ¡Cumpliste el objetivo pactado al fichar! Bono de ${fmtMoney(lastSeason.objectiveResult.bonus)}.` });
+    else if (lastSeason.objectiveResult) notices.push({ c: "text-neutral-400", t: `🎯 No llegaste al objetivo pactado al fichar (rating ${lastSeason.objectiveResult.ratingTarget}+): esta vez no hubo bono.` });
     (lastSeason.milestones || []).forEach((m) => notices.push({ c: "text-violet-300", t: m }));
     if (lastSeason.duelResult === "won") notices.push({ c: "text-violet-300", t: "🥊 Le ganaste el duelo al pibe: el DT te ratificó como referente." });
     if (lastSeason.duelResult === "lost") notices.push({ c: "text-red-400", t: "🥊 El pibe te pasó por arriba y te comió el puesto. Pasaste el año en el banco." });
@@ -1766,6 +1823,8 @@ export default function App() {
     else if (e.inIntlCup && e.intlEliminatedAt && e.intlPj > 0) recap.push({ txt: clubCupResultText(e.intlCupName, e.intlTier, { won: false, eliminatedAt: e.intlEliminatedAt }), tone: "info" });
     if (e.wonNationalCup) recap.push({ txt: `🏆 ¡Ganaste la ${e.nationalCupName}! Otra para la vitrina.`, tone: "gold" });
     if (e.ballon) recap.push({ txt: `✨ ¡Ganaste el Balón de Oro! El mejor del mundo.`, tone: "gold" });
+    if (e.objectiveResult?.met) recap.push({ txt: `🎯 ¡Cumpliste el objetivo pactado al fichar! Bono de ${fmtMoney(e.objectiveResult.bonus)}.`, tone: "gold" });
+    else if (e.objectiveResult) recap.push({ txt: `🎯 No llegaste al objetivo pactado al fichar (rating ${e.objectiveResult.ratingTarget}+): esta vez no hubo bono.`, tone: "info" });
     if (e.natl) {
       if (e.natl.torneo?.won) recap.push({ txt: `🏆 ¡Campeón de ${e.natl.torneo.name === "Mundial" ? "el Mundial" : "la " + e.natl.torneo.name} con la Selección!`, tone: "gold" });
       else if (e.natl.torneo) recap.push({ txt: `📺 ${torneoResultText(e.natl.torneo)}`, tone: "info" });
@@ -1903,6 +1962,9 @@ export default function App() {
                   <span className="text-neutral-400">Tu sueldo actual en {c.name}:</span>
                   <span className="font-bold text-white ml-auto">{fmtMoney(state.wage)}<span className="text-xs text-neutral-500">/año</span></span>
                 </div>
+                {state.clauseClubId === state.clubId && state.clauseAmount > 0 && (
+                  <p className="text-[11px] text-sky-400 mb-3">🔒 Tenés cláusula de rescisión de {fmtMoney(state.clauseAmount)} con {c.name}.</p>
+                )}
               </>
             )}
             {negMsg && <p className={`text-sm mb-3 ${negMsg.ok ? "text-emerald-400" : "text-red-400"}`}>{negMsg.text}</p>}
@@ -1946,6 +2008,11 @@ export default function App() {
                         );
                       })()}
                     </div>
+                    <button
+                      className="w-full mt-2 bg-transparent border border-neutral-700 text-neutral-300 rounded-full py-2 text-xs font-semibold active:scale-95 hover:bg-neutral-800 transition"
+                      onClick={() => openConditions(o)}>
+                      📋 Fichar con condiciones
+                    </button>
                   </div>
                 );
               })}
@@ -2002,6 +2069,80 @@ export default function App() {
           )}
           </div>
           <Footer />
+      </div>
+    );
+  }
+
+  // --- CONDICIONES: mesa de negociación al fichar por un club nuevo (cláusula + objetivos) ---
+  if (screen === "condiciones" && conditionsOffer) {
+    const o = conditionsOffer;
+    const oc = club(o.clubId);
+    const mv = marketValue(state.ovr, state.age, state.pos);
+    const packages = [
+      {
+        key: "clausula",
+        emoji: "🔒",
+        title: "Cláusula blindada",
+        desc: `Pedís una cláusula de rescisión alta a cambio de resignar algo de sueldo. Te da estabilidad: a los demás clubes les va a costar mucho más sacarte de ahí.`,
+        wageMult: 0.94,
+        clauseMult: 2.2,
+      },
+      {
+        key: "objetivos",
+        emoji: "🎯",
+        title: "Objetivos de rendimiento",
+        desc: `Resignás algo de sueldo a cambio de un bono grande si tenés un año sólido (rating ≥ 6.8) en tu primera temporada ahí.`,
+        wageMult: 0.95,
+        objective: { ratingTarget: 6.8, bonusPct: 0.35 },
+      },
+      {
+        key: "todo",
+        emoji: "🤝",
+        title: "Todo o nada",
+        desc: `Pedís cláusula alta Y objetivos, resignando bastante más sueldo de entrada. Si te va bien, ganás mucho más; si no, perdiste plata desde el arranque.`,
+        wageMult: 0.88,
+        clauseMult: 2.6,
+        objective: { ratingTarget: 7.0, bonusPct: 0.55 },
+      },
+    ];
+    return (
+      <div className={S.page}>
+        <div className={S.card}>
+          <Logo />
+          <div className="bg-neutral-950 rounded-2xl p-5 mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <ClubLogo id={o.clubId} size={28} />
+              <div>
+                <p className="font-bold">Negociación con {oc.name}</p>
+                <p className="text-xs text-neutral-500">Oferta base: {fmtMoney(o.wage)}/año</p>
+              </div>
+            </div>
+            <p className="text-sm text-neutral-400">Elegís qué condiciones pactar antes de firmar. Cada paquete resigna algo de sueldo inicial a cambio de algo a futuro.</p>
+          </div>
+          <div className="space-y-3">
+            {packages.map((p) => (
+              <button key={p.key} onClick={() => chooseClub(o, p)}
+                className="w-full text-left bg-neutral-900 rounded-xl p-4 transition active:scale-[0.98] hover:bg-neutral-800">
+                <div className="flex justify-between items-start mb-1">
+                  <p className="font-semibold text-sm">{p.emoji} {p.title}</p>
+                  <p className="font-bold text-emerald-400 shrink-0 ml-2">{fmtMoney(Math.round(o.wage * p.wageMult))}<span className="text-[10px] text-neutral-500">/año</span></p>
+                </div>
+                <p className="text-xs text-neutral-500 mb-2">{p.desc}</p>
+                <div className="flex flex-wrap gap-2">
+                  {p.clauseMult && <span className="text-[10px] bg-sky-950 text-sky-300 rounded-full px-2 py-1">🔒 Cláusula {fmtMoney(Math.round(mv * p.clauseMult))}</span>}
+                  {p.objective && <span className="text-[10px] bg-violet-950 text-violet-300 rounded-full px-2 py-1">🎯 Rating ≥ {p.objective.ratingTarget} → +{Math.round(p.objective.bonusPct * 100)}% bono</span>}
+                </div>
+              </button>
+            ))}
+          </div>
+          <button className={`${S.btnGhost} mt-4`} onClick={() => chooseClub(o)}>
+            Fichar sin condiciones · {fmtMoney(o.wage)}/año
+          </button>
+          <button className="w-full mt-2 text-xs text-neutral-500 hover:text-white transition" onClick={() => setScreen("mercado")}>
+            ← Volver a las ofertas
+          </button>
+        </div>
+        <Footer />
       </div>
     );
   }
