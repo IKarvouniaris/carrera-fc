@@ -236,10 +236,16 @@ const NATIONAL_CUP = {
   ARG: "Copa Argentina", ESP: "Copa del Rey", GER: "DFB-Pokal",
   ITA: "Coppa Italia", ENG: "FA Cup", COL: "Copa Colombia",
 };
-// Torneo internacional según la confederación del país.
+// Torneo internacional principal según la confederación del país.
 const INTL_CUP = {
   ARG: "Copa Libertadores", COL: "Copa Libertadores",
   ESP: "Champions League", GER: "Champions League", ITA: "Champions League", ENG: "Champions League",
+};
+// Torneo internacional secundario: para clubes que no llegan al de arriba pero sí son
+// lo bastante grandes para jugar copa internacional "chica".
+const SECOND_INTL_CUP = {
+  ARG: "Copa Sudamericana", COL: "Copa Sudamericana",
+  ESP: "Europa League", GER: "Europa League", ITA: "Europa League", ENG: "Europa League",
 };
 // Devuelve el código de país (ARG, ESP…) a partir del nombre de liga.
 function leagueCountry(league) {
@@ -474,10 +480,66 @@ function legacyVerdict(state, peak) {
 
 // ---------- SIMULACIÓN DE TEMPORADA ----------
 
+// Fases de una copa internacional de clubes (Libertadores/Sudamericana/Champions/Europa League).
+// La fase de grupos son varios partidos; de ahí en más son series de ida y vuelta (2 PJ),
+// menos la final (un solo partido). "primary" = Libertadores/Champions, "secondary" = Sudamericana/Europa.
+const CLUB_CUP_ROUNDS = {
+  primary: [
+    { key: "grupos", label: "la fase de grupos", games: 6 },
+    { key: "octavos", label: "octavos de final", games: 2 },
+    { key: "cuartos", label: "cuartos de final", games: 2 },
+    { key: "semis", label: "semifinales", games: 2 },
+    { key: "final", label: "la final", games: 1 },
+  ],
+  secondary: [
+    { key: "grupos", label: "la fase de grupos", games: 4 },
+    { key: "octavos", label: "octavos de final", games: 2 },
+    { key: "cuartos", label: "cuartos de final", games: 2 },
+    { key: "semis", label: "semifinales", games: 2 },
+    { key: "final", label: "la final", games: 1 },
+  ],
+};
+
+// Simula una copa internacional de clubes ronda por ronda (igual mecánica que el torneo de
+// selecciones): la chance de pasar cada ronda mezcla tu OVR, el prestigio del club, si te
+// lesionaste esta temporada, y un factor suerte que es MÁS ANCHO cuanto más chico es el club
+// (para que de vez en cuando un equipo chico se mande una campaña soñada). Así los partidos
+// jugados y la fase en la que quedaste afuera son siempre consistentes con el resultado.
+function simClubCupRun(prestige, ovr, injuredThisSeason, tier) {
+  const rounds = CLUB_CUP_ROUNDS[tier];
+  const skill = clamp((ovr - 70) / 40, -0.3, 0.6);
+  const clubQ = clamp((prestige - 68) / 45, 0, 0.6);
+  // la Sudamericana/Europa League es un escalón más fácil: la oposición en general es más floja,
+  // así que un club mediano tiene bastante más chance ahí que en la Libertadores/Champions.
+  const secondaryBonus = tier === "secondary" ? 0.12 : 0;
+  const quality = clamp(skill * 0.35 + clubQ * 1.0 + secondaryBonus, -0.15, 0.42);
+  const luckAmp = clamp(0.30 - (prestige - 68) / 220, 0.12, 0.30);
+  const injPen = injuredThisSeason ? 0.10 : 0;
+  let round = 0;
+  let games = 0;
+  let eliminatedAt = null;
+  while (round < rounds.length) {
+    games += rounds[round].games;
+    const groupsBonus = round === 0 ? 0.15 : 0;
+    const chance = clamp(0.42 + quality - injPen + groupsBonus + rf(-luckAmp, luckAmp), 0.08, 0.85);
+    if (Math.random() < chance) round++;
+    else { eliminatedAt = rounds[round].key; break; }
+  }
+  return { games, won: round === rounds.length, eliminatedAt };
+}
+
+// Texto del resultado de una copa internacional de clubes: campeón, subcampeón, o en qué fase quedó afuera.
+function clubCupResultText(name, tier, result) {
+  if (result.won) return `🌎 ¡Campeón de la ${name}! Gloria continental.`;
+  if (result.eliminatedAt === "final") return `🌎 Llegaste a la final de la ${name} pero la perdiste: subcampeón continental.`;
+  const stage = CLUB_CUP_ROUNDS[tier].find((r) => r.key === result.eliminatedAt);
+  return `🌎 ${name}: quedaste eliminado en ${stage.label}.`;
+}
+
 // Riesgo de lesión: sube con la edad y con cada lesión previa (cuerpo castigado).
 // El fisio lo reduce un 85%. Exportado para mostrarlo en la carta de pretemporada.
 function injuryRisk(state, withFisio) {
-  let base = clamp(0.08 + Math.max(state.age - 26, 0) * 0.025 + (state.injuries || 0) * 0.04, 0.08, 0.4);
+  let base = clamp(0.06 + Math.max(state.age - 26, 0) * 0.017 + (state.injuries || 0) * 0.025, 0.06, 0.26);
   // la cláusula médica (pago único) baja el riesgo de base para siempre
   if (state.medicalClause) base *= 0.55;
   return withFisio ? base * 0.15 : base;
@@ -520,12 +582,16 @@ function playSeason(state, clutchOutcome) {
   const cupRun = clamp(0.2 + (c.prestige - 45) / 90 + rf(-0.15, 0.2), 0.1, 1); // qué tan lejos llega el club
   const cupPj = Math.round(cupRun * 7 * playShare); // hasta ~7 partidos si llega a la final
   const wonNationalCup = Math.random() < clamp((c.prestige - 55) / 120 + 0.06, 0.02, 0.28) && playShare > 0.4;
-  // Torneo internacional (Libertadores/Champions): solo si tu club es lo bastante grande.
-  const intlCupName = INTL_CUP[country];
-  const inIntlCup = c.prestige >= 68; // clasificaste el año pasado
-  const intlRun = inIntlCup ? clamp(0.3 + (c.prestige - 68) / 60 + rf(-0.2, 0.25), 0.1, 1) : 0;
-  const intlPj = Math.round(intlRun * 13 * playShare); // liguilla + eliminatorias, hasta ~13
-  const wonIntlCup = inIntlCup && Math.random() < clamp((c.prestige - 80) / 200 + 0.02, 0.01, 0.14) && playShare > 0.5;
+  // Torneo internacional: Libertadores/Champions si el club es grande, Sudamericana/Europa
+  // League si es mediano. Se simula ronda por ronda (ver simClubCupRun) para que los partidos
+  // jugados y la fase de eliminación sean siempre consistentes con el resultado.
+  const intlTier = c.prestige >= 68 ? "primary" : c.prestige >= 50 ? "secondary" : null;
+  const intlCupName = intlTier === "primary" ? INTL_CUP[country] : intlTier === "secondary" ? SECOND_INTL_CUP[country] : null;
+  const inIntlCup = intlTier !== null;
+  const intlCupRun = inIntlCup ? simClubCupRun(c.prestige, ovr, injured, intlTier) : null;
+  const intlPj = intlCupRun ? Math.round(intlCupRun.games * playShare) : 0;
+  const wonIntlCup = !!intlCupRun?.won && playShare > 0.5;
+  const intlEliminatedAt = intlCupRun && !intlCupRun.won ? intlCupRun.eliminatedAt : null;
 
   const pj = ligaPj + cupPj + intlPj;
   const isAtk = ["DC", "ED", "EI", "MCO"].includes(state.pos);
@@ -577,7 +643,7 @@ function playSeason(state, clutchOutcome) {
   const newOvr = clamp(Math.round((ovr + growth) * 10) / 10, 40, 99);
 
   return { pj, ligaPj, cupPj, intlPj, gls, ast, cleanSheets, rating: Math.round(rating * 10) / 10, newOvr, injured, severeInjury, champion,
-    nationalCupName, wonNationalCup, intlCupName, inIntlCup, wonIntlCup, duelResult };
+    nationalCupName, wonNationalCup, intlCupName, intlTier, inIntlCup, wonIntlCup, intlEliminatedAt, duelResult };
 }
 
 // Rondas de un torneo de selecciones, en orden. La fase de grupos son 3 partidos;
@@ -868,7 +934,8 @@ export default function App() {
     }
     if (season.wonIntlCup) {
       newTrophies.push({ name: season.intlCupName, clubId: s.clubId, age: s.age });
-      prize += Math.round(s.wage * 0.8); // el torneo internacional paga como ninguno
+      // Libertadores/Champions paga como ninguna; Sudamericana/Europa League es un escalón menor
+      prize += Math.round(s.wage * (season.intlTier === "primary" ? 0.8 : 0.45));
     }
     // Balón de Oro: solo para los mejores del mundo en un año brillante.
     // Una campaña de prensa te da visibilidad y empuja tu candidatura.
@@ -886,7 +953,13 @@ export default function App() {
     if (ballon) {
       party = { title: "BALÓN DE ORO", subtitle: `${playerName} es el mejor jugador del mundo`, emoji: "✨" };
     } else if (season.wonIntlCup) {
-      party = { title: `¡${season.intlCupName.toUpperCase()}!`, subtitle: `${club(s.clubId).name} campeón de ${season.intlCupName} con ${playerName}`, emoji: "🌎" };
+      party = {
+        title: `¡${season.intlCupName.toUpperCase()}!`,
+        subtitle: season.intlTier === "primary"
+          ? `${club(s.clubId).name} campeón de ${season.intlCupName} con ${playerName}`
+          : `${club(s.clubId).name} se corona en la ${season.intlCupName} con ${playerName}`,
+        emoji: "🌎",
+      };
     } else if (natl?.torneo?.won && natl.torneo.name === "Mundial") {
       party = { title: "¡CAMPEÓN DEL MUNDO!", subtitle: `${playerName} y la Selección tocan la gloria`, emoji: "🏆" };
     } else if (natl?.torneo?.won) {
@@ -910,7 +983,8 @@ export default function App() {
       warning: bad && !releasedNow && !s.parentClubId && !isHome, // te bancan, pero avisan
       hintReaction: s.hintReaction || null, // reacción del club a la indirecta que tiraste
       wonNationalCup: season.wonNationalCup, nationalCupName: season.nationalCupName,
-      wonIntlCup: season.wonIntlCup, intlCupName: season.intlCupName,
+      wonIntlCup: season.wonIntlCup, intlCupName: season.intlCupName, intlTier: season.intlTier,
+      inIntlCup: season.inIntlCup, intlEliminatedAt: season.intlEliminatedAt,
     };
     // los clubes resentidos se van olvidando de a poco
     const cooledBlocked = {};
@@ -1371,7 +1445,8 @@ export default function App() {
     // avisos como lista para poder animarlos escalonados
     const notices = [];
     if (lastSeason.champion) notices.push({ c: "text-amber-300", t: `🏆 ¡${club(lastSeason.clubId).name} campeón de la ${club(lastSeason.clubId).league}! Cobraste un premio.` });
-    if (lastSeason.wonIntlCup) notices.push({ c: "text-amber-300 font-semibold", t: `🌎 ¡Campeón de la ${lastSeason.intlCupName}! El título más grande a nivel clubes.` });
+    if (lastSeason.wonIntlCup) notices.push({ c: "text-amber-300 font-semibold", t: `🌎 ¡Campeón de la ${lastSeason.intlCupName}! ${lastSeason.intlTier === "primary" ? "El título más grande a nivel clubes." : "Gloria continental de segundo escalón, pero gloria al fin."}` });
+    else if (lastSeason.inIntlCup && lastSeason.intlEliminatedAt && lastSeason.intlPj > 0) notices.push({ c: "text-neutral-400", t: clubCupResultText(lastSeason.intlCupName, lastSeason.intlTier, { won: false, eliminatedAt: lastSeason.intlEliminatedAt }) });
     if (lastSeason.wonNationalCup) notices.push({ c: "text-amber-300", t: `🏆 ¡Ganaste la ${lastSeason.nationalCupName}! Otra vuelta para las vitrinas.` });
     if (lastSeason.natl) notices.push({ c: "text-sky-300", t: `🇦🇷 Convocado a la selección: ${lastSeason.natl.caps} PJ${lastSeason.natl.goals > 0 ? `, ${lastSeason.natl.goals} goles` : ""}.` });
     if (lastSeason.natl?.torneo) notices.push({
@@ -1688,7 +1763,7 @@ export default function App() {
     recap.push({ txt: statLine, tone: "info" });
     if (e.champion) recap.push({ txt: `🏆 ¡CAMPEONES de la ${leagueShort(c.league).split(" · ")[1] || "Liga"} con ${c.name}!`, tone: "gold" });
     if (e.wonIntlCup) recap.push({ txt: `🌎 ¡Campeón de la ${e.intlCupName}! Gloria continental.`, tone: "gold" });
-    else if (e.inIntlCup && e.intlPj > 0) recap.push({ txt: `🌎 ${e.intlCupName}: ${e.intlPj >= 10 ? "llegaste lejos" : "quedaste en el camino"}.`, tone: "info" });
+    else if (e.inIntlCup && e.intlEliminatedAt && e.intlPj > 0) recap.push({ txt: clubCupResultText(e.intlCupName, e.intlTier, { won: false, eliminatedAt: e.intlEliminatedAt }), tone: "info" });
     if (e.wonNationalCup) recap.push({ txt: `🏆 ¡Ganaste la ${e.nationalCupName}! Otra para la vitrina.`, tone: "gold" });
     if (e.ballon) recap.push({ txt: `✨ ¡Ganaste el Balón de Oro! El mejor del mundo.`, tone: "gold" });
     if (e.natl) {
