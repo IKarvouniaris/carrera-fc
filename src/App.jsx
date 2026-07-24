@@ -580,8 +580,22 @@ function playSeason(state, clutchOutcome) {
     nationalCupName, wonNationalCup, intlCupName, inIntlCup, wonIntlCup, duelResult };
 }
 
+// Rondas de un torneo de selecciones, en orden. La fase de grupos son 3 partidos;
+// de ahí en más, cada ronda es un partido único de eliminación directa.
+const TOURNAMENT_ROUNDS = [
+  { key: "grupos", label: "la fase de grupos", games: 3 },
+  { key: "octavos", label: "octavos de final", games: 1 },
+  { key: "cuartos", label: "cuartos de final", games: 1 },
+  { key: "semis", label: "semifinales", games: 1 },
+  { key: "final", label: "la final", games: 1 },
+];
+
 // Selección nacional: te convocan si tu nivel da (más fácil con buen rating).
-// Cada 2 temporadas hay torneo: alterna Copa América y Mundial.
+// Cada 2 temporadas hay torneo: alterna Copa América y Mundial. Simulamos el torneo
+// ronda por ronda para que los partidos jugados (caps) y el resultado sean siempre
+// consistentes entre sí: si ganaste, jugaste todas las rondas; si te eliminaron en
+// octavos, tus caps de esa temporada reflejan justo esos partidos, nunca un número
+// inflado o desconectado de lo que realmente pasó.
 function playNationalTeam(state, seasonRating) {
   // la prensa/fama te pone en la consideración del DT: baja un poco la vara para ser convocado
   const ovrReq = state.press ? 70 : 73;
@@ -589,15 +603,36 @@ function playNationalTeam(state, seasonRating) {
   const convocado = state.ovr >= ovrReq && seasonRating >= ratingReq && state.age >= 18;
   if (!convocado) return null;
   const isAtk = ["DC", "ED", "EI", "MCO"].includes(state.pos);
-  const caps = Math.round(rf(4, 9));
-  const goals = state.pos === "POR" ? 0 : Math.round(caps * (isAtk ? rf(0.3, 0.7) : rf(0.05, 0.25)));
+  const hasTorneo = state.age % 2 === 0;
+  // amistosos y eliminatorias sueltas del año; en año de torneo hay menos margen para amistosos
+  let caps = Math.round(hasTorneo ? rf(2, 5) : rf(4, 9));
   let torneo = null;
-  if (state.age % 2 === 0) {
+  if (hasTorneo) {
     const name = state.age % 4 === 0 ? "Mundial" : "Copa América";
-    const winChance = clamp(0.15 + (state.ovr - 75) / 80, 0.1, 0.5);
-    torneo = { name, won: Math.random() < winChance };
+    let round = 0;
+    let eliminatedAt = null;
+    // fase de grupos: más margen (son 3 partidos). Rondas de eliminación directa: más exigentes.
+    const passChance = (i) => i === 0
+      ? clamp(0.65 + (state.ovr - 80) / 120, 0.4, 0.9)
+      : clamp(0.55 + (state.ovr - 80) / 100, 0.25, 0.75);
+    while (round < TOURNAMENT_ROUNDS.length) {
+      caps += TOURNAMENT_ROUNDS[round].games;
+      if (Math.random() < passChance(round)) round++;
+      else { eliminatedAt = TOURNAMENT_ROUNDS[round].key; break; }
+    }
+    torneo = { name, won: round === TOURNAMENT_ROUNDS.length, eliminatedAt };
   }
+  const goals = state.pos === "POR" ? 0 : Math.round(caps * (isAtk ? rf(0.3, 0.7) : rf(0.05, 0.25)));
   return { caps, goals, torneo };
+}
+
+// Texto del resultado del torneo con la Selección: campeón, subcampeón, o en qué ronda quedó afuera.
+function torneoResultText(t) {
+  const prep = t.name === "Mundial" ? "del" : "de la";
+  if (t.won) return `🏆 ¡Ganaste ${t.name === "Mundial" ? "el" : "la"} ${t.name}!`;
+  if (t.eliminatedAt === "final") return `Perdiste la final ${prep} ${t.name}: subcampeón con la Selección.`;
+  const stage = TOURNAMENT_ROUNDS.find((r) => r.key === t.eliminatedAt);
+  return `Quedaste eliminado en ${stage.label} ${prep} ${t.name}.`;
 }
 
 // Ofertas del mercado. Si te soltaron (forced), también ofertan clubes
@@ -1341,7 +1376,7 @@ export default function App() {
     if (lastSeason.natl) notices.push({ c: "text-sky-300", t: `🇦🇷 Convocado a la selección: ${lastSeason.natl.caps} PJ${lastSeason.natl.goals > 0 ? `, ${lastSeason.natl.goals} goles` : ""}.` });
     if (lastSeason.natl?.torneo) notices.push({
       c: lastSeason.natl.torneo.won ? "text-amber-300" : "text-neutral-400",
-      t: lastSeason.natl.torneo.won ? `🏆 ¡Ganaste ${lastSeason.natl.torneo.name === "Mundial" ? "el" : "la"} ${lastSeason.natl.torneo.name}!` : `Jugaste ${lastSeason.natl.torneo.name === "Mundial" ? "el" : "la"} ${lastSeason.natl.torneo.name}, pero no alcanzó.`,
+      t: torneoResultText(lastSeason.natl.torneo),
     });
     if (lastSeason.ballon) notices.push({ c: "text-yellow-300 font-semibold", t: "✨ ¡Ganaste el Balón de Oro! Sos el mejor jugador del mundo." });
     (lastSeason.milestones || []).forEach((m) => notices.push({ c: "text-violet-300", t: m }));
@@ -1658,7 +1693,7 @@ export default function App() {
     if (e.ballon) recap.push({ txt: `✨ ¡Ganaste el Balón de Oro! El mejor del mundo.`, tone: "gold" });
     if (e.natl) {
       if (e.natl.torneo?.won) recap.push({ txt: `🏆 ¡Campeón de ${e.natl.torneo.name === "Mundial" ? "el Mundial" : "la " + e.natl.torneo.name} con la Selección!`, tone: "gold" });
-      else if (e.natl.torneo) recap.push({ txt: `📺 ${e.natl.torneo.name}: quedaste en el camino con la Selección.`, tone: "info" });
+      else if (e.natl.torneo) recap.push({ txt: `📺 ${torneoResultText(e.natl.torneo)}`, tone: "info" });
       else recap.push({ txt: `🇦🇷 Convocado a la Selección: ${e.natl.caps} PJ${e.natl.goals > 0 ? `, ${e.natl.goals} goles` : ""}.`, tone: "info" });
     }
     (e.milestones || []).forEach((m) => recap.push({ txt: m, tone: "special" }));
