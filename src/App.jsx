@@ -753,7 +753,9 @@ function generateOffers(state, seasonRating, forced) {
       chance -= 0.25 + ((state.injuries || 0) - 3) * 0.05; // cuantas más lesiones, más recelo
     }
     if (forced && c.tier <= current.tier) chance += 0.3; // los chicos te ven accesible
-    if (!needsYourPos && !forced) chance *= 0.15; // no buscan tu puesto: casi imposible
+    // si el club salió a decir públicamente que le interesás, ya sabemos que te necesitan:
+    // no tiene sentido que el filtro de "necesidad de posición" les gane a su propia palabra.
+    if (!needsYourPos && !forced && reaction !== "interesado") chance *= 0.15; // no buscan tu puesto: casi imposible
     if (hasClause) chance -= 0.15; // tu cláusula frena a los curiosos
     if (Math.random() < clamp(chance, 0.02, 0.9)) {
       let wageMult = rf(0.08, 0.12) * (forced ? 0.8 : 1);
@@ -884,6 +886,9 @@ export default function App() {
       bondDelta = 1;                                  // quedás bien parado
     } else {
       ratingDelta = -rewardVal * 0.7;                 // fallar duele, pero menos de lo que sumaba
+      // fallar en la cancha en un momento clave pesa MÁS de lo que hubiera sumado acertar:
+      // el título se te escapa un poco de verdad, no es solo un número de rating.
+      if (moment.type === "pitch") titleBoost = -rewardVal * 0.18;
       bondDelta = moment.type === "off" ? -1 : 0;     // meter la pata fuera de la cancha te deja mal
     }
 
